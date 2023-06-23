@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Template to Create BackupVault, BackupPlan, BackupPlanSelection and enable RDS backup and copy to cross region based on Tags"
+Metadata:
+    ParameterGroups:
+    - Label:
+        default: 'Common Parameters'
+      Parameters:
+      - CreateNewTargetBackupVault
+    - Label:
+        default: 'Automated BackupPlan Parameters'
+      Parameters:
+      - TargetVaultName
+      - DestinationVaultRegion
+      - DestinationVaultName
+      - StartWindowMinutes
+      - CompletionWindowMinutes
+      - DeleteAfterDays
+      - RDSTagKey1
+      - RDSTagValue1
+      - RDSTagKey2
+      - RDSTagValue2
+      - RDSTagKey3
+      - RDSTagValue3
+      - ScheduleExpression
+    - Label:
+        default: 'AWS RDS Tagging Parameters'
+      Parameters:
+      - costCenterParameter
+      - supportGroupParameter
+      - changeGroupParameter
+      - blockcode
+     
+Parameters:
+  CreateNewTargetBackupVault:
+    Type: String
+    Default: true
+    Description: To make a decision to create vault or using the existing vault
+    AllowedValues:
+      - true
+      - false
+
+  TargetVaultName:
+    Type: String
+    Description: The name of the vault to identifies the destination backup vault in local rgion for the copied backup
+  
+  DestinationVaultRegion:
+    Type: String
+    Description: The name of the vault to identifies the destination backup vault in destination region for the copied backup
+    Default: 'us-west-2'
+    ConstraintDescription: This parameter is required.
+
+  DestinationVaultName:
+    Type: String
+    Description: The name of the vault to identifies the destination backup vault in destination region for the copied backup
+    Default: 'Default'
+    ConstraintDescription: This parameter is required.
+  
+  StartWindowMinutes:
+    Type: Number
+    Description: The period of time in minutes after a backup is scheduled before a job is canceled if it doesn't start successfully.
+    Default: 60
+    ConstraintDescription: This parameter is required.
+
+  CompletionWindowMinutes:
+    Type: Number
+    Description: The value in minutes after a backup job is successfully started before it must be completed or it is canceled by AWS Backup
+    Default: 120
+    ConstraintDescription: This parameter is required.
+
+  DeleteAfterDays:
+    Type: Number
+    Description: The number of days after creation that a recovery point is deleted
+    Default: 1
+
+  RDSTagKey1:
+    Type: String
+    Description: The tag key used to select RDS instances
+    ConstraintDescription: This parameter is required.
+
+  RDSTagValue1:
+    Type: String
+    Description: The tag value used to select RDS instances
+    ConstraintDescription: This parameter is required.
+  
+  RDSTagKey2:
+    Type: String
+    Description: The tag key used to select RDS instances
+    Default: ""
+
+  RDSTagValue2:
+    Type: String
+    Description: The tag value used to select RDS instances
+    Default: ""
+
+  RDSTagKey3:
+    Type: String
+    Description: The tag key used to select RDS instances
+    Default: ""
+
+  RDSTagValue3:
+    Type: String
+    Description: The tag value used to select RDS instances
+    Default: ""
+
+  ScheduleExpression:
+    Type: String
+    Description: The A CRON expression specifying when AWS Backup initiates a backup job
+    Default: "cron(0 0/1 * * ? *)"
+    ConstraintDescription: This parameter is required.
+  
+  costCenterParameter:
+    Description: The value for the costCenter tag.
+    Type: String
+
+
+  supportGroupParameter:
+    Description: The value for the supportGroup.
+    Type: String
+    
+  blockcode:
+    Type: String
+    Description: Enter the 10 character Blockcode (in lowercase) for this RDS instance
+    AllowedPattern: ^[a-z0-9]{10}
+
+Conditions:
+  # If CreateNewBackupVault selected as true, will create new vault
+  CreateNewVault: !Equals [ !Ref CreateNewTargetBackupVault, "true" ]
+  
+  # To include tags in the backup rule
+  IncludeTag2: 
+    !Not
+      - !Equals
+        - !Ref RDSTagKey2
+        - ""
+  IncludeTag3: 
+    !Not
+      - !Equals
+        - !Ref RDSTagKey3
+        - ""
+  IncludeAllTags: !And [Condition: IncludeTag2, Condition: IncludeTag3 ]
+
+Resources:
+  # Backup Vault
+  BackupVaultforRDS:
+    Condition: CreateNewVault
+    Type: "AWS::Backup::BackupVault"
+    Properties:
+      BackupVaultName: rds-backup-vault
+      BackupVaultTags: {
+        "Key": "changeGroup",
+        "Value": !Ref changeGroupParameter,
+        "Key": "costCenter",
+        "Value": !Ref costCenterParameter,
+        "Key": "supportGroup", 
+        "Value": !Ref supportGroupParameter,
+        "Key": "blockcode",
+        "Value": !Ref blockcode
+      }
+  # Backup Plan
+  BackupPlanforRDS:
+    Type: "AWS::Backup::BackupPlan"
+    Properties:
+      BackupPlan:
+        BackupPlanName: rds-backup-plan
+        BackupPlanRule:
+          - 
+            RuleName: rds-backup-plan-rule
+            CompletionWindowMinutes: !Ref CompletionWindowMinutes
+            CopyActions: 
+              - DestinationBackupVaultArn: !Sub 'arn:aws:backup:${AWS::Region}:${AWS::AccountId}:backup-vault:${DestinationVaultName}'
+                Lifecycle: 
+                  DeleteAfterDays: !Ref DeleteAfterDays
+            Lifecycle: 
+              DeleteAfterDays: !Ref DeleteAfterDays
+            RecoveryPointTags: {
+              "Key": "changeGroup",
+              "Value": !Ref changeGroupParameter,
+              "Key": "costCenter",
+              "Value": !Ref costCenterParameter,
+              "Key": "supportGroup", 
+              "Value": !Ref supportGroupParameter,
+              "Key": "blockcode",
+              "Value": !Ref blockcode
+            }
+            ScheduleExpression: !Ref ScheduleExpression
+            StartWindowMinutes: !Ref StartWindowMinutes
+            TargetBackupVault: !If [ CreateNewVault, !Ref BackupVaultforRDS, !Sub 'arn:aws:backup:${DestinationVaultRegion}:${AWS::AccountId}:backup-vault:${TargetVaultName}' ]
+      BackupPlanTags: {
+         "Key": "changeGroup",
+         "Value": !Ref changeGroupParameter,
+         "Key": "costCenter",
+         "Value": !Ref costCenterParameter,
+         "Key": "supportGroup", 
+         "Value": !Ref supportGroupParameter,
+         "Key": "blockcode",
+         "Value": !Ref blockcode
+      }
+  # Backup Plan Selection   
+  TagBasedBackupSelection:
+    DependsOn: BackupRoleforRDS
+    Type: "AWS::Backup::BackupSelection"
+    Properties:
+      BackupSelection:
+        SelectionName: !Ref BackupPlanforRDS
+        IamRoleArn: !GetAtt 
+        - BackupRoleforRDS
+        - Arn
+        ListOfTags: 
+          !If
+            - IncludeAllTags
+            - [{"ConditionType" : "STRINGEQUALS", "ConditionKey" : !Ref RDSTagKey1, "ConditionValue" : !Ref RDSTagValue1}, {"ConditionType" : "STRINGEQUALS", "ConditionKey" : !Ref RDSTagKey2, "ConditionValue" : !Ref RDSTagValue2 }, {"ConditionType" : "STRINGEQUALS", "ConditionKey" : !Ref RDSTagKey3, "ConditionValue" : !Ref RDSTagValue3 } ]
+            - !If
+                - IncludeTag2
+                - [{"ConditionType" : "STRINGEQUALS", "ConditionKey" : !Ref RDSTagKey1, "ConditionValue" : !Ref RDSTagValue1}, {"ConditionType" : "STRINGEQUALS", "ConditionKey" : !Ref RDSTagKey2, "ConditionValue" : !Ref RDSTagValue2 }]
+                - !If
+                  - IncludeTag3
+                  - [{"ConditionType" : "STRINGEQUALS", "ConditionKey" : !Ref RDSTagKey1, "ConditionValue" : !Ref RDSTagValue1}, {"ConditionType" : "STRINGEQUALS", "ConditionKey" : !Ref RDSTagKey3, "ConditionValue" : !Ref RDSTagValue3 }]
+                  - [{"ConditionType" : "STRINGEQUALS", "ConditionKey" : !Ref RDSTagKey1, "ConditionValue" : !Ref RDSTagValue1}]
+      BackupPlanId: !Ref BackupPlanforRDS
+            
+  # The aws backup role
+  BackupRoleforRDS:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    Properties:
+      RoleName: !Join [ "-", ['delegate-admin', rds-backup-service, role]]
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'backup.amazonaws.com'
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Join [ "-", ['delegate-admin', rds-backup-service, policy]]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Resource: "*"
+              Action:
+              - rds:AddTagsToResource
+              - rds:ListTagsForResource
+              - rds:DescribeDBSnapshots
+              - rds:CreateDBSnapshot
+              - rds:CopyDBSnapshot
+              - rds:DescribeDBInstances
+              - rds:CreateDBClusterSnapshot
+              - rds:DescribeDBClusters
+              - rds:CopyDBClusterSnapshot
+              - rds:DescribeDBClusterSnapshots
+              Effect: Allow
+            - Resource: arn:aws:rds:*:*:snapshot:awsbackup:*
+              Action:
+              - rds:DeleteDBSnapshot
+              - rds:ModifyDBSnapshotAttribute
+              Effect: Allow
+            - Resource: arn:aws:rds:*:*:cluster-snapshot:awsbackup:*
+              Action:
+              - rds:DeleteDBClusterSnapshot
+              - rds:ModifyDBClusterSnapshotAttribute
+              Effect: Allow
+            - Resource: "*"
+              Action:
+              - tag:GetResources
+              Effect: "Allow"
+            - Resource: arn:aws:backup:*:*:backup-vault:*
+              Action:
+              - backup:DescribeBackupVault
+              - backup:CopyIntoBackupVault
+              Effect: Allow
+            - Resource: "*"
+              Action:
+              - kms:DescribeKey
+              - backup:CopyIntoBackupVault
+              Effect: Allow
+      PermissionsBoundary: !Join [":", ["arn:aws:iam:", !Ref AWS::AccountId, "policy/cft-developer-boundary-policy"] ]
+
+Outputs:
+  BackupVaultArn:
+    Description: Backup Vault ARN
+    Condition: CreateNewVault
+    Value: !GetAtt BackupVaultforRDS.BackupVaultArn
+  BackupPlanArn:
+    Description: BackupPlan Arn
+    Value: !GetAtt BackupPlanforRDS.BackupPlanArn

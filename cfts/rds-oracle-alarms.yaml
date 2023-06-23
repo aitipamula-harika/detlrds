@@ -1,0 +1,252 @@
+###### Template to setup Oracle database monitoring alarms  #######
+##
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template to setup various database monitoring alarms  
+
+Parameters:
+  RdsDbInstance:
+    Type: String
+    Description: The name of rds instance which needs monitoring
+  
+  logMetricNamespace:
+    Type: String
+    Description: The name of log metric namespace
+    Default: RdsLogMetrics
+
+  DBLoadCpuAlarmTheshold:
+    Type: Number
+    Description: Please enter threshold for DbLoadCpu. Ideally it shoule be set value = number of VCPUs allocated RDS instance based on Instance Type + 1. Refer https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.DBInstanceClass.html#Concepts.DBInstanceClass.Summary for more info.
+
+  FreeableMemoryAlarmTheshold:
+    Type: Number
+    Default: 100000000 
+    Description: Please enter threshold for free Space below which you would like to get Alarm. Default is set to 100MB=100000000  in bytes. 
+
+  FreeStorageSpaceAlarmTheshold:
+    Type: Number
+    Default: 4000000000 
+    Description: Please enter threshold for free Space below which you would like to get Alarm. Default is set to 4 GB=4000000000   in bytes. 
+  
+  DatabaseConnectionsAlarmTheshold:
+    Type: Number
+    Description: Please set this value to 95% of max connections set for instance. Max Connections value is set based on type of instance. Please refer documentation https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_Limits.html#RDS_Limits.MaxConnections
+
+  SnowSNSTopic:
+    Type: String
+    Default: RDS-Alerts-All
+    Description: The SNS Topic for sending alarms to lambda to forward it further to snow. Default should work in all cases. 
+
+
+
+Resources:
+
+  #################### Metric Filters and Metrics #######################################
+  # Following is list of all metric filters we need before creating alarms. 
+  # Each Metric filter creates a metric which then can be utilized while createing alarms. 
+    
+  # This Metric filter will  search for pattern '?"ORA-600" ?"ORA-4035" ?"ORA-7445" ?'  in
+  # Oracle database error log and create corresponding metric
+  FilterlogOraRds: 
+    Type: AWS::Logs::MetricFilter
+    Properties: 
+      LogGroupName: !Sub  "/aws/rds/instance/${RdsDbInstance}/alert"
+      FilterPattern:  '?"ORA-600" ?"ORA-4035" ?"ORA-7445"'
+      MetricTransformations: 
+      - MetricValue: "1"
+        MetricNamespace: !Ref logMetricNamespace
+        MetricName: !Sub "dblogalerts-${RdsDbInstance}"
+
+  #################### END Metric Filters ################
+
+  #################### Alarms  #######################################
+ 
+  # Following alarm utilizes all metrics created above for Oracle error logs based metric
+  DbAlertAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle  # this topic points to DBA emails. 
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmDescription: Alarm which triggers when there are errors in database log
+      AlarmName: !Sub "RDSdblogalerts-${RdsDbInstance}"
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 1
+      EvaluationPeriods: 1
+      InsufficientDataActions: []
+      MetricName: !Sub "dblogalerts-${RdsDbInstance}"
+      Namespace: !Ref logMetricNamespace
+      Period: 60
+      Statistic: Sum
+      Threshold: 0.0
+      TreatMissingData: notBreaching
+
+  # Following alarm utilizes cloudwatch DatabaseConnections metric and triggers when it is greater than threshold
+  DatabaseConnectionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub "RDSDatabaseConnections-${RdsDbInstance}"
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref RdsDbInstance
+      EvaluationPeriods: 5
+      MetricName: DatabaseConnections
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref DatabaseConnectionsAlarmTheshold
+      TreatMissingData: ignore
+
+  # Following alarm utilizes cloudwatch CPUUtilization metric and triggers when it is greater than threshold
+  CPUUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub "RDSCPUUtilization-${RdsDbInstance}"
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref RdsDbInstance
+      EvaluationPeriods: 5
+      MetricName: CPUUtilization
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: 90
+      TreatMissingData: ignore
+
+
+  # Following alarm utilizes cloudwatch ReadLatency metric and triggers when it is greater than threshold
+  ReadLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      AlarmName: !Sub "RDSReadLatency-${RdsDbInstance}"
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref RdsDbInstance
+      EvaluationPeriods: 5
+      MetricName: ReadLatency
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: 250
+      TreatMissingData: ignore
+
+  # Following alarm utilizes cloudwatch WriteLatency metric and triggers when it is greater than threshold
+  WriteLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      AlarmName: !Sub "RDSWriteLatency-${RdsDbInstance}"
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref RdsDbInstance
+      EvaluationPeriods: 5
+      MetricName: WriteLatency
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: 250
+      TreatMissingData: ignore
+
+  # DbLoadCpu is supposed to be less than 1 + NumCpus. This alarm triggers when Dbload is greater than NumCpus 
+  DBLoadCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub "RDSDBLoadCpu-${RdsDbInstance}"
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref RdsDbInstance
+      EvaluationPeriods: 5
+      MetricName: DBLoadCPU
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref DBLoadCpuAlarmTheshold
+      TreatMissingData: ignore
+
+  ## Following alarm utilizes cloudwatch FreeStorageSpace metric. This alarm triggers when FreeStorageSpace is less than 10% of maxallocated
+  FreeStorageSpaceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub "RDSFreeStorageSpace-${RdsDbInstance}"
+      ComparisonOperator: LessThanOrEqualToThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref RdsDbInstance
+      EvaluationPeriods: 5
+      MetricName: FreeStorageSpace
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref FreeStorageSpaceAlarmTheshold  
+      TreatMissingData: ignore
+  
+  # FreeableMemory is supposed to be greater than at least 100MB . This alarm triggers when FreeableMemory is less than Threshold
+  FreeMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmDescription: Alarm to send alert when free memory is less than 100 MB 
+      AlarmName: !Sub "RDSFreeMemory-${RdsDbInstance}"
+      ComparisonOperator: LessThanOrEqualToThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref RdsDbInstance
+      EvaluationPeriods: 5
+      MetricName: FreeableMemory
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref FreeableMemoryAlarmTheshold  
+      TreatMissingData: ignore
+  
+  #################### End Cloudwatch Alarms  #######################################
+

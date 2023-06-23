@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for setting RDS Automaintenance notifications to DB and app team 
+
+Parameters:
+  RdsDbInstance:
+    Description: Please enter of RDS instance for which notifications are going to be sent
+    Type: String
+  SNSSubscriberAppTeam:
+    Description: Please enter email distribution list of application team responsible for supporting application
+    Type: String
+  SNSSubscriberDbTeam:
+    Description: Please enter email distribution list of database team responsible for supporting database
+    Type: String
+  costCenterParameter:
+    Description: The value for the costCenter tag assigned to RDS instance.
+    Type: String
+    Default: TEST
+  iServerIDParameter:
+    Description: The value for the iServerID tag assigned to RDS instance.
+    Type: String
+    Default: TEST
+  dataClassificationParameter:
+    Description: The value for the dataClassificationParameter. You can keep it internal. 
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: internal
+  supportGroupParameter:
+    Description: the value of the assignment group of database team responsible for supporting database
+    Type: String
+    Default: TEST
+  changeGroupParameter:
+    Description: the value of the assignment group of database team responsible for supporting database
+    Type: String
+    Default: TEST
+  appCriticalityTierParameter:
+    Type: String
+    Description: The value for the appCritiality tag assigned to RDS instance
+    AllowedValues: ['MV', 'MC', 'BC', 'BE', 'B']
+    Default: B
+
+Resources:
+
+  # THE FOLLOWING RESOURCE CREATE A SNS TOPIC THAT WILL BE USED TO SEND NOTIFICATIONS
+  SNSTopicForAppTeam:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref SNSSubscriberAppTeam
+          Protocol: email
+        - Endpoint: !Ref SNSSubscriberDbTeam
+          Protocol: email 
+      TopicName:  !Sub "RDS-AUTOMAINTENANCE-${RdsDbInstance}"
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityTierParameter
+
+  #THE FOLLOWING RESOURCE CREATES A RULE WHICH TRIGGERS WHEN AWS HEALTH EVENT OCCURS AND SEND NOTIFICATION SNS TOPIC
+  AutoMaintenanceRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Rule to send notification when auto maintenance is scheduled"
+      EventBusName: default
+      EventPattern: !Sub "{\n  \"source\": [\"aws.health\"],\n  \"detail-type\": [\"AWS Health Event\"],\n  \"detail\": {\n    \"service\": [\"RDS\"],\n    \"eventTypeCategory\": [\"scheduledChange\"]\n  },\n  \"resources\": [\"arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:${RdsDbInstance}\"]\n}"        
+      Name: !Sub "RDS-AUTOMAINTENANCE-${RdsDbInstance}"
+      State: ENABLED
+      Targets:
+        - Arn: !Ref SNSTopicForAppTeam
+          Id: 'SNSTopicforAppTeam'
+
+ 

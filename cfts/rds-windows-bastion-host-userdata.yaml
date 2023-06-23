@@ -1,0 +1,513 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating an windows bastion server for DBA team
+
+Metadata:
+  #UnusedParams: # cfn-lint ignore
+    #blockCodeOLD: !Ref blockCodeOLD
+
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'General Parameters'
+      Parameters:
+      - ProjectName
+      - blockCode
+      - InstanceType
+      - OSVersion
+      - PostConfigType
+      - EC2IAMInstanceProfileName
+      - ServerType
+      - MonitoringProfile
+      - DomainEnv
+      - SubnetSelection
+    - Label:
+        default: 'Drive Sizes'
+      Parameters:
+      - EDriveSize
+      - FDriveSize
+    - Label:
+        default: 'The following section is only for use with production Sailpoint!'
+      Parameters:
+      - primaryOwner
+      - secondaryOwners
+      - Environment
+      - dataClassification
+      - isPCI
+      - isPII
+      - isPrivileged
+      - isCUI
+      - isSOX
+      - isGDPR
+
+Parameters:
+
+  InstanceType:
+    Type: String
+    Description: Select the instance type you would like to use in your launch templates
+    AllowedValues: ['t3.small', 't3.medium', 't2.small', 't2.medium', 't2.xlarge', 't2.2xlarge', 't3.2xlarge']
+    Default: t2.medium
+
+  OSVersion:
+    Type: String
+    Description: Select the windows OS Version you would like to use
+    AllowedValues: ['windows-2016', 'windows-2019']
+    Default: windows-2016
+
+  PostConfigType:
+    Type: String
+    Description: Select the windows OS post config Type. Since this instance will need JDK installation for the SQLDevelopertool installation. It must be WINDOS-IISJDK.
+    AllowedValues: ['WINDOS-IISJDK']
+    Default: WINDOS-IISJDK
+
+  ProjectName:
+    Type: String
+    Description: Enter the name for the project
+
+  blockCode:
+    Type: String
+    Description: Enter the block code for the project
+    AllowedPattern: ^[a-zA-Z0-9]{10}$
+
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+
+  InfraAppVersion:
+    Type: String
+    Description: The major product version of JDK to use.  Select 'none' if you do not want JDK installed.
+    AllowedValues: ['none', '1.8', '11']
+    Default: none
+
+  SubnetSelection:
+    Type: String
+    Description: Please select a subnect in which to create your instance
+    AllowedValues: ['privatesubnet1aid','privatesubnet2aid','privatesubnet3aid','webappsubnet1aid', 'webappsubnet1bid','webappsubnet1cid','webappsubnet2aid', 'webappsubnet2bid','webappsubnet2cid']
+    #Default: privatesubnet1aid
+
+  DomainEnv:
+    Type: String
+    #Default: CFITDELTA.CFITRL.Delta.com
+    AllowedValues:
+      - DELTA.RL.Delta.com
+      - CFITDELTA.CFITRL.Delta.com
+      - VAD.VS.AIR4.com
+      - SI.VAD.VS.AIR4.com
+      - VSNonProd.AWS.AIR4.com
+      - CORPORATE.mem
+      - EVProd.AWS.Delta.com
+      - EVNonProd.AWS.Delta.com
+      - DLNonProd.AWS.Delta.com
+      - DLProd.AWS.Delta.com
+
+  SailPointEnv:
+    Type: String
+    Description: Select the SailPoint Environment
+    AllowedValues: ['Corp AD', 'CFITDelta AD']
+    #Default: 'CFITDelta AD'
+
+  EDriveSize:
+    Type: Number
+    Description: Enter the volume size for the E Drive (in GB)
+    Default: 50
+
+  FDriveSize:
+    Type: Number
+    Description: Enter the volume size for the F Drive (in GB)
+    Default: 8
+
+  ServerType:
+    Type: String
+    Default: application
+    AllowedValues:
+      - application
+      - database
+      - dc
+      - citrix
+      - web
+
+  MonitoringProfile:
+    Type: String
+    Description: Select the Monitoring Profile
+    Default: BaseOS
+    AllowedValues:
+      - NoMonitoring
+      - BaseOS
+      - BaseOSInfraApp
+      - BaseOSAPM
+      - BaseOSAPMInfraApp
+      - BaseOSLoggingAnalytics
+      - BaseOSAPMLoggingAnalytics
+      - BaseOSAPMInfraAppLoggingAnalytics
+      - BaseOSLogging
+      - BaseOSCustom
+
+  EC2IAMInstanceProfileName:
+    Type: String
+    Description: The Name of the IAM Instance Profile that should be used when creating the EC2 Launch Template
+    Default: DeltaMigrationEC2Role
+
+  primaryOwner:
+    Type: String
+    Description: Primary owner user id (6 digit) that should be set on the sailpoint group
+
+  secondaryOwners:
+    Type: String
+    Description: Comma delimited list of secondary owner user ids (6 digit) that should be set on the sailpoint group
+
+  dataClassification:
+    Type: String
+    Description: Flag indicating the data classification that should be set on the sailpoint group
+    AllowedValues: ['None', 'Restricted', 'Confidential']
+    Default: 'None'
+
+  isPII:
+    Type: String
+    Description: Flag indicating whether or not PII is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  isPCI:
+    Type: String
+    Description: Flag indicating whether or not PCI is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  isSOX:
+    Type: String
+    Description: Flag indicating whether or not SOX is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  isPrivileged:
+    Type: String
+    Description: Flag indicating whether or not the group should be privledged
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  isCUI:
+    Type: String
+    Description: Flag indicating whether or not CUI is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  isGDPR:
+    Type: String
+    Description: Flag indicating whether or not GDPR is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  OSPatchWeek:
+    Type: String
+    Description: The week that you would like the OS on this instance patched on.  Note that only production instances can choose between week1 and week2, all others have to be on week 1.
+    AllowedValues: ['wk1','wk2']
+
+  OSPatchDay:
+    Type: String
+    Description: The day that you would like the OS on this instance patched on.  Note that non-prd instances will get patched during the 1st week of the 14-day patch cycle whereas prd instances will get patched in the 2nd week of the 14-day patch cycle.
+    AllowedValues: ['mon','tue','wed','thu','fri','sat','sun']
+
+  OSPatchHour:
+    Type: String
+    Description: The hour (2 digit) that you would like the OS for this instance patched on.
+    AllowedValues: ['01','02','03','04','05','06','07','08','09','10','11','12','13','14','15','16','17','18','19','20','21','22','24']
+    AllowedPattern: ^[0-9]{2}$
+
+  ProdOOBPatchGroup:
+    Type: String
+    Description: The Out of Band (OOB) patch schedule you would like to use for this instance.  Note that this only applies to production instances.
+    AllowedValues: ['prd-day-3-2000','prd-day-4-2200','prd-day-5-2400','prd-day-6-0200','prd-day-7-0400']
+
+
+
+Mappings:
+  EnvironmentMap:
+    sandbox:
+      "abbreviation": "lab"
+      "mainCategory": "nonprd"
+      "patchabbreviation": "lab"
+      "oobPatchGroup": "dev-day-1-1800"
+    development:
+      "abbreviation": "dvl"
+      "mainCategory": "nonprd"
+      "patchabbreviation": "dev"
+      "oobPatchGroup": "dev-day-1-1800"
+    systems-integration:
+      "abbreviation": "int"
+      "mainCategory": "nonprd"
+      "patchabbreviation": "si"
+      "oobPatchGroup": "si-day-2-1800"
+    production:
+      "abbreviation": "prd"
+      "mainCategory": "prd"
+      "patchabbreviation": "prd"
+      "oobPatchGroup": "prd-day-3-2000"
+    aws-central-services:
+      "abbreviation": "prd"
+      "mainCategory": "prd"
+      "patchabbreviation": "prd"
+      "oobPatchGroup": "prd-day-3-2000"
+
+  #  RegionMap:
+  #    us-east-1:
+  #      "abbreviation": "NV"
+  #    us-east-2:
+  #      "abbreviation": "OH"
+  #    us-west-1:
+  #      "abbreviation": "NC"
+  #    us-west-2:
+  #      "abbreviation": "OR"
+
+Conditions:
+  IsProductionAccount: !Equals
+    - !Ref Environment
+    - 'production'
+  IsDevelopmentAccount: !Equals
+    - !Ref Environment
+    - 'development'
+  IsSystemsIntegrationAccount: !Equals
+    - !Ref Environment
+    - 'systems-integration'
+  IsIISInstance: !Equals
+    - !Ref PostConfigType
+    - 'WINDOWS-IIS'
+
+Resources:
+
+  #LOAD BALANCER
+
+  #EC2 INSTANCE CREATION
+  PrimaryNI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+       Description: Primary NI for Windows instance
+       GroupSet:
+       - '{{resolve:ssm:/delta/ec2/infrastructure-sg-id:1}}'
+       SubnetId: !Sub '{{resolve:ssm:/delta/vpc/${SubnetSelection}:1}}'
+  SecondaryNI:
+    Condition: IsIISInstance
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+       Description: Secondary NI for IIS instance
+       GroupSet:
+       - '{{resolve:ssm:/delta/ec2/infrastructure-sg-id:1}}'
+       SubnetId: !Sub '{{resolve:ssm:/delta/vpc/${SubnetSelection}:1}}'
+  windowsBaseLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${ProjectName}-windowsBase-${OSVersion}
+      LaunchTemplateData:
+        ImageId: !Sub '{{resolve:ssm:/delta/ec2/ami/${OSVersion}/us-east-1/latest:1}}'
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Name: !Ref EC2IAMInstanceProfileName
+        BlockDeviceMappings:
+          - Ebs:
+              VolumeSize: !Ref EDriveSize
+              VolumeType: gp2
+              DeleteOnTermination: true
+              Encrypted: true
+            DeviceName: xvdf
+          - Ebs:
+              VolumeSize: !Ref FDriveSize
+              VolumeType: gp2
+              DeleteOnTermination: true
+              Encrypted: true
+            DeviceName: xvdg
+        NetworkInterfaces: !If
+          - IsIISInstance
+          -
+            -
+              NetworkInterfaceId: !Ref PrimaryNI
+              DeviceIndex: 0
+            -
+              NetworkInterfaceId: !Ref SecondaryNI
+              DeviceIndex: 1
+          -
+            -
+              NetworkInterfaceId: !Ref PrimaryNI
+              DeviceIndex: 0
+        TagSpecifications:
+          - ResourceType: volume
+            Tags:
+              - Key: costCenter
+                Value: Cxxxxxx
+              - Key: iServerID
+                Value: Dxxxxxxx
+              - Key: blockCode
+                Value: !Ref blockCode
+              - Key: dataClassification
+                Value: Internal
+              - Key: supportGroup
+                Value: PSS_x
+              - Key: assignmentGroup
+                Value: PSS_x
+          - ResourceType: instance
+            Tags:
+              - Key: costCenter
+                Value: Cxxxxxx
+              - Key: iServerID
+                Value: Dxxxxxxx
+              - Key: dataClassification
+                Value: Internal
+              - Key: supportGroup
+                Value: PSS_x
+              - Key: assignmentGroup
+                Value: PSS_x
+              - Key: PostConfig
+                Value: !Ref PostConfigType
+              - Key: InfraAppVersion
+                Value: !Ref InfraAppVersion
+              - Key: EntMonitoringProfile
+                Value: !Ref MonitoringProfile
+              - Key: OSVersion
+                Value: !Ref OSVersion
+              - Key: Name
+                Value: !GetAtt EC2NamingInvocation.name
+              - Key: Environment
+                Value: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+              - Key: Alias
+                Value: !Sub
+                  - ${prefix}.${accountname}.${suffix}
+                  - {
+                      prefix: !GetAtt EC2NamingInvocation.name,
+                      accountname: '{{resolve:ssm:/org/member/account_name:1}}',
+                      suffix: aws.delta.com
+                    }
+              - Key: blockCode
+                Value: !Ref blockCode
+              - Key: OSPatchGroup
+                Value: !Sub
+                  - os-win-${OSPatchEnvironment}-${OSPWeek}-${OSPatchDay}-${OSPatchHour}00
+                  - {
+                    OSPatchEnvironment: !FindInMap [EnvironmentMap, !Ref Environment, "patchabbreviation"],
+                    OSPWeek: !If [IsProductionAccount, !Ref OSPatchWeek, 'wk1']
+                    }
+              - Key: OOBPatchGroup
+                Value: !If
+                  - IsProductionAccount
+                  - !Ref ProdOOBPatchGroup
+                  - !FindInMap [EnvironmentMap, !Ref Environment, "oobPatchGroup"]
+        UserData: 
+          'Fn::Base64': !Sub |
+            <powershell>
+            Set-ExecutionPolicy Bypass -Scope Process -Force; 
+            #iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+            #choco install awscli -y  // removed this line since awscli has been installed on ec2
+            #$AWSPath = "C:\Program Files\Amazon\AWSCLIV2"
+            #$OLDPATH = [System.Environment]::GetEnvironmentVariable('PATH','User')
+            #$NEWPATH = "$OLDPATH;$AWSPath"
+            #[Environment]::SetEnvironmentVariable("PATH", "$NEWPATH", "User")
+            # Install jq tool.
+            $JqFolder= "E:\tools\jq"
+            if(!(test-path $JqFolder))
+            {
+              md $JqFolder
+              aws s3 cp s3://delta-postcfg-artifacts/webengineering/DotNet/jq-win64.exe $JqFolder
+              Rename-Item -Path "E:\tools\jq\jq-win64.exe" -NewName "jq.exe"
+              Set-Item -Path Env:Path -Value ($Env:Path + ";E:\jq")
+            }
+            $instanceid = ( Invoke-RestMethod -uri http://169.254.169.254/latest/meta-data/instance-id )
+            
+            
+            #$pgadmin = (aws s3 ls s3://delta-postcfg-artifacts/database/tools/ | %{$_ -replace "PRE",""}| %{$_ -replace "",""}| %{$_ -replace "/",""}|%{$_ -replace (" ","")}|Select-String -Pattern "^$Java_version"|Sort-Object|Select-Object -Last 1)
+            Import-Module "$env:ProgramData\chocolatey\helpers\chocolateyInstaller.psm1"
+            Update-SessionEnvironment
+            cd C:/temp/
+            md windows-pkgs
+            cd .\windows-pkgs
+            # Copy installers from S3 bucket to local folder.
+            aws s3 sync s3://delta-postcfg-artifacts/database/tools/ . 
+            # The following lines will get the newest file in the sub directories with the assumption the newest file is the newest versoin of the installer.
+            $pgAdmin_FilePath = dir -r PgAdmin| Get-ChildItem -Recurse -File | sort LastWritetime | select-object fullname -Last 1
+            $SSMS_FilePath = dir -r SQLServerManagementStudio | Get-ChildItem -Recurse -File | sort LastWritetime | select-object fullname -Last 1
+            $SchemaTool_FilePath = dir -r SchemaConversionTool | Get-ChildItem -Recurse -File | sort LastWritetime | select-object fullname -Last 1
+            $SQLDeveloper_FilePath = dir -r SQLServerManagementStudio | Get-ChildItem -Recurse -File | sort LastWritetime | select-object fullname -Last 1
+            
+            #Start installation for two of the .exe files
+            Start-Process -Wait -FilePath $pgAdmin_FilePath -Argument "/silent" -PassThru
+            Start-Process -Wait -FilePath $SSMS_FilePath -Argument "/silent" -PassThru
+            
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            [System.IO.Compression.ZipFile]::ExtractToDirectory('c:\temp\windows-pkgs\SchemaConversionTool\aws-schema-conversion-tool-1.0.latest.zip', 'c:\temp\windows-pkgs\SchemaConversionTool\')
+            cd "c:\temp\windos-pkgs\SchemaConversionTool\" & '.\AWS Schema Conversion Tool-1.0.650.msi' /quiet
+            cd ..\SQLDeveloper\
+            [System.IO.Compression.ZipFile]::ExtractToDirectory('C:/temp/windows-pkgs/SQLDeveloper/sqldeveloper-20.4.1.407.0006-x64.zip', 'C:/temp/windows-pkgs/SQLDeveloper/')
+            Start-Process -Wait -FilePath .\sqldeveloper\sqldeveloper.exe -ArgumentList '/S','/v','/qn' -PassThru
+
+            //delete the files.
+            remove-item .\windows-pkgs\
+            </powershell>
+
+
+
+              
+
+  BaseWindowsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref windowsBaseLaunchTemplate
+        Version: '1'
+  SecondaryNIAlias:
+    Condition: IsIISInstance
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: '{{resolve:ssm:/delta/r53/hostedzoneid:1}}'
+      Name: !Sub
+        - "${shorthostname}-iis.${hostedzonedomain}"
+        - {
+          shorthostname: !GetAtt EC2NamingInvocation.name,
+          hostedzonedomain: '{{resolve:ssm:/delta/r53/hostedzonename:1}}'
+          }
+      Type: A
+      TTL: 300
+      ResourceRecords:
+      - !GetAtt SecondaryNI.PrimaryPrivateIpAddress
+    DependsOn: SecondaryNI
+  SecondaryNIAliasCert:
+    Condition: IsIISInstance
+    Type: 'AWS::CertificateManager::Certificate'
+    Properties:
+      CertificateAuthorityArn: !Sub "{{resolve:ssm:/delta/acm/pca/arn:1}}"
+      DomainName: !Sub
+        - "${shorthostname}-iis.${hostedzonedomain}"
+        - {
+          shorthostname: !GetAtt EC2NamingInvocation.name,
+          hostedzonedomain: '{{resolve:ssm:/delta/r53/hostedzonename:1}}'
+          }
+    DependsOn: SecondaryNIAlias
+
+  #LAMBDAS
+  EC2NamingInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !If [IsProductionAccount, arn:aws:sns:us-east-1:094835659498:name_generator_topic, arn:aws:sns:us-east-1:148569397242:name_generator_topic]
+      OSVersion: !Ref OSVersion
+      Domain: !Ref DomainEnv
+      Environment: !FindInMap [EnvironmentMap, !Ref Environment, "mainCategory"]
+      Region: !Ref "AWS::Region"
+      ServerType: !Ref ServerType
+
+  EC2SailpointInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: IsProductionAccount
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:sailpoint-group-creation
+      hostName: !GetAtt EC2NamingInvocation.name
+      domainName: !Ref SailPointEnv
+      primaryOwner: !Ref primaryOwner
+      secondaryOwners: !Ref secondaryOwners
+      environment: !Ref Environment
+      dataClassification: !Ref dataClassification
+      isPII: !Ref isPII
+      isPCI: !Ref isPCI
+      isSOX: !Ref isSOX
+      isPrivileged: !Ref isPrivileged
+      isCUI: !Ref isCUI
+      isGDPR: !Ref isGDPR

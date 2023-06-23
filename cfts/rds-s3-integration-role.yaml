@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Description": "AWS CloudFormation Template for creating IAM Roles Required for S3 Integration with RDS Oracle:
+ 
+Resources:
+# This role will be  get created once per account and this will enable creation of DMS Replication instances.
+  
+  DelegateAdminS3IntRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: "delegate-admin-rds-s3-integration"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - rds.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      PermissionsBoundary:
+        Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+      Tags:
+        - Key: blockCode
+          Value: IIMDBAORCL
+  DelegateAdminS3IntPolicy: 
+    Type: 'AWS::IAM::Policy'
+    Properties: 
+      PolicyName: delegate-admin-rds-s3-integration-policy
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: Allow
+            Action: s3:*
+            Resource:
+              - "arn:aws:s3:::dal-database-artifacts-si"
+              - "arn:aws:s3:::dal-database-artifacts-si/*"
+              - "arn:aws:s3:::delta-rds-artifacts-us-east-1/*"
+              - "arn:aws:s3:::delta-rds-artifacts-us-east-1"
+              - "arn:aws:s3:::delta-rds-artifacts-us-west-2/*"
+              - "arn:aws:s3:::delta-rds-artifacts-us-west-2"
+      Roles: 
+         - Ref: "DelegateAdminS3IntRole"

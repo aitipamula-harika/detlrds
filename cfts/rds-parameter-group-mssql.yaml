@@ -1,0 +1,42 @@
+--- 
+AWSTemplateFormatVersion: 2010-09-09
+Description: "Template for Delta Default RDS Parameter Group for MSSQL RDS instances"
+Resources: 
+  MSSQLParameterGroupParameterEnterprise: 
+    Properties: 
+      Description: "SSM Parameter for the name of the MSSQL RDS Parameter Group that all MSSQL RDS instances should use."
+      Name: /delta/rds/parametergroup/mssqlenterprise
+      Tier: Standard
+      Type: String
+      Value: mssqlenterprise
+    Type: "AWS::SSM::Parameter"
+  mssqlenterprise: 
+    Properties: 
+      Description: "Delta Enterprise MSSQL Parameter Group"
+      Family: sqlserver-ee-15.0
+      Parameters: 
+        rds.force_ssl: 1
+      Tags: 
+        - 
+          Key: Name
+          Value: delta-sqlserver-ee-15.0
+    Type: "AWS::RDS::DBParameterGroup"
+  MSSQLParameterGroupParameterStandard: 
+    Properties: 
+      Description: "SSM Parameter for the name of the MSSQL RDS Parameter Group that all MSSQL RDS instances should use."
+      Name: /delta/rds/parametergroup/mssqlstandard
+      Tier: Standard
+      Type: String
+      Value: mssqlstandard
+    Type: "AWS::SSM::Parameter"
+  mssqlstandard:
+    Properties: 
+      Description: "Delta Standard MSSQL Parameter Group"
+      Family: sqlserver-se-15.0
+      Parameters: 
+        rds.force_ssl: 1
+      Tags: 
+        - 
+          Key: Name
+          Value: delta-sqlserver-se-15.0
+    Type: "AWS::RDS::DBParameterGroup"

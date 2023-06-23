@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Description": "AWS CloudFormation Template for creating IAM Roles Required for DMS replication instances:
+ 
+Resources:
+# This role will be  get created once per account and this will enable creation of DMS Replication instances.
+  DMSReplicationInstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: dms-vpc-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - dms.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonDMSVPCManagementRole
+      PermissionsBoundary:
+        Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+
+ # This role will be  get created once per account and this will enable  DMS Replication instances to access logs in Cloudwatch.
+  DMSReplicationInstanceCloudWatchRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: dms-cloudwatch-logs-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - dms.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonDMSCloudWatchLogsRole
+      PermissionsBoundary:
+        Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+
+ 

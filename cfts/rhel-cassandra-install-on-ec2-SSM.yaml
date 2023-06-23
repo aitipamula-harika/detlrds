@@ -1,0 +1,208 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating SSM command document that will install Cassandra
+Parameters:
+  CassandraMountPoint01:
+    Type: String
+    Description: Mount Point 01 
+    Default: "/database"
+  CassandraMountPoint04:
+    Type: String
+    Description: Mount Point 04
+    Default: "/opt/dse"
+  AddUser:
+    Type: String
+    Description: USer to addon server
+    Default: "cassandra"
+  CASSS3BucketName:
+    Type: String
+    Description: The name of the S3 Bucket which contains the RHEL Postconfig Artifacts (example. PostConfig Ansible Playbook)
+    Default: delta-rds-artifacts-us-east-1
+  Envrn:
+    Type: String
+    Description: Cassandra Install Enviornment
+    Default: "dev"
+  SolrEnabled:
+    Type: String
+    Description: SolrEnabled values can be yes or no
+    Default: true
+  SparkEnabled: 
+    Description: SolrEnabled values can be yes or no
+    Type: String
+    Default: false
+  DSEVersion:
+    Type: String
+    Description: DSEVersion
+    Default: dse-6.0.13  
+  Rack:
+    Type: String
+    Description: Cassandra Install Enviornment
+    Default: rack1
+  DataCenter:
+    Type: String
+    Description: SolrEnabled values can be yes or no
+    Default: aws
+  AgentVersion:
+    Type: String
+    Description: SolrEnabled values can be yes or no
+    Default: datastax-agent-6.8.15    
+  ClusterName: 
+    Description: SolrEnabled values can be yes or no
+    Type: String
+    Default: test_cluster
+Resources:
+    InstallCassRKSSMDocument:
+        Type: AWS::SSM::Document
+        Properties:
+            DocumentType: Command
+            Name: 'DL-DB-cassandra-install'
+            Content :
+              {
+                "schemaVersion": "2.2",
+                "description": "Command document that will install dba tools on windows box",
+                "parameters":{
+                  "CassandraMountPoint01":{
+                  "type": "String",
+                  "description":"First Mount point ",
+                  "default" : {"Ref":"CassandraMountPoint01"}
+                  },
+                  "CassandraMountPoint04":{
+                  "type": "String",
+                  "description":"Fourth Mount point ",
+                  "default" : {"Ref":"CassandraMountPoint04"}
+                  },
+                  "CASSS3BucketName":{
+                  "type": "String",
+                  "description": "The name of the S3 Bucket which contains the RHEL Postconfig Artifacts (example. PostConfig Ansible Playbook)",
+                  "default": {"Ref":"CASSS3BucketName"}
+                   },
+                  "Envrn":{
+                  "type": "String",
+                  "description":"First Mount point ",
+                  "default" : {"Ref":"Envrn"}
+                  },
+                  "SolrEnabled":{
+                  "type": "String",
+                  "description":"Secound Mount point d",
+                  "default" : {"Ref":"SolrEnabled"}
+                  },
+                  "SparkEnabled":{
+                  "type": "String",
+                  "description":"Third Mount point ",
+                  "default" : {"Ref":"SparkEnabled"}
+                  },
+                  "DSEVersion":{
+                  "type": "String",
+                  "description":"Fourth Mount point ",
+                  "default" : {"Ref":"DSEVersion"}
+                  },
+                  "Rack":{
+                  "type": "String",
+                  "description":"Setup a strong password for cassandra user",
+                  "default" : {"Ref":"Rack"}
+                  },
+                  "DataCenter":{
+                  "type": "String",
+                  "description": "The name of the S3 Bucket which contains the RHEL Postconfig Artifacts (example. PostConfig Ansible Playbook)",
+                  "default": {"Ref":"DataCenter"}
+                  },
+                  "AgentVersion":{
+                  "type": "String",
+                  "description": "The name of the S3 Bucket which contains the RHEL Postconfig Artifacts (example. PostConfig Ansible Playbook)",
+                  "default": {"Ref":"AgentVersion"}
+                  },
+                  "ClusterName":{
+                  "type": "String",
+                  "description": "The name of the S3 Bucket which contains the RHEL Postconfig Artifacts (example. PostConfig Ansible Playbook)",
+                  "default": {"Ref":"ClusterName"}
+                  }                   
+                 },
+                "mainSteps": [
+                  {
+                    "action": "aws:runShellScript",
+                    "name": "SkernelParameters",
+                    "inputs": {
+                      "runCommand": [ 
+                        "  echo \"running step as $(whoami)\"",
+                        "  useradd -m -d /opt/dse -s /bin/bash cassandra",
+                        "  chown -R cassandra:cassandra {{CassandraMountPoint04}}",
+                        "  chown -R cassandra:cassandra {{CassandraMountPoint01}} ",
+                        #### Set sysctl values
+                        " echo \"net.ipv4.tcp_keepalive_time=60\" >>/etc/sysctl.d/99-sysctl.conf ",
+                        " echo \"net.ipv4.tcp_keepalive_probes=3\" >>/etc/sysctl.d/99-sysctl.conf ",
+                        " echo \"net.ipv4.tcp_keepalive_intvl=10\" >>/etc/sysctl.d/99-sysctl.conf ",
+                        " echo \"net.core.rmem_max=16777216\" >>/etc/sysctl.d/99-sysctl.conf ",
+                        " echo \"net.core.wmem_max=16777216\" >>/etc/sysctl.d/99-sysctl.conf ",
+                        " echo \"net.core.rmem_default=16777216\" >>/etc/sysctl.d/99-sysctl.conf ",   
+                        " echo \"net.core.wmem_default=16777216\" >>/etc/sysctl.d/99-sysctl.conf ",
+                        " echo \"net.core.optmem_max=40960\" >>/etc/sysctl.d/99-sysctl.conf ",
+                        " echo \"net.ipv4.tcp_rmem=4096 87380 16777216\" >>/etc/sysctl.d/99-sysctl.conf ",
+                        " echo \"net.ipv4.tcp_wmem=4096 65536 16777216\" >>/etc/sysctl.d/99-sysctl.conf ",
+                        " echo \"vm.max_map_count=1048575\" >>/etc/sysctl.d/99-sysctl.conf ",    
+                        ####  set limits in security 
+                        " echo \"cassandra       hard    nofile        1048576 \" >>/etc/security/limits.conf ",
+                        " echo \"cassandra       soft    nofile        1048576 \" >>/etc/security/limits.conf ",
+                        " echo \"cassandra       hard    nproc         32768 \" >>/etc/security/limits.conf ",
+                        " echo \"cassandra       soft    nproc         32768 \" >>/etc/security/limits.conf ",
+                        " echo \"cassandra       soft    core          unlimited \" >>/etc/security/limits.conf ",
+                        " echo \"cassandra       hard    core          unlimited \" >>/etc/security/limits.conf ",
+                        ####  set limits in cassandra conf
+                        " echo \"cassandra       hard    nofile        1048576 \" >>/etc/security/limits.d/cassandra.conf ",
+                        " echo \"cassandra       soft    nofile        1048576 \" >>/etc/security/limits.d/cassandra.conf ",
+                        " echo \"cassandra       hard    nproc         32768 \" >>/etc/security/limits.d/cassandra.conf ",
+                        " echo \"cassandra       soft    nproc         32768 \" >>/etc/security/limits.d/cassandra.conf ",
+                        " echo \"cassandra       soft    core          unlimited \" >>/etc/security/limits.d/cassandra.conf ",
+                        " echo \"cassandra       hard    core          unlimited \" >>/etc/security/limits.d/cassandra.conf ",
+                        " echo \"cassandra       soft    memlock       unlimited \" >>/etc/security/limits.d/cassandra.conf ",
+                        " echo \"cassandra       hard    memlock       unlimited \" >>/etc/security/limits.d/cassandra.conf ",
+                        " touch /var/lock/subsys/local ",
+                        ' mkdir /etc/tuned/throughput-performance && echo -e "[disk-cassandra]\ntype=disk\ndevices=xvd*\nreadahead=8\nrotational=0" | cat - /usr/lib/tuned/throughput-performance/tuned.conf > /etc/tuned/throughput-performance/tuned.conf ',
+                        " echo deadline > /sys/block/xvdf/queue/scheduler ",
+                        " echo deadline > /sys/block/xvdg/queue/scheduler ",
+                        " echo deadline > /sys/block/xvdh/queue/scheduler ",
+                        " for CPUFREQ in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do [ -f $CPUFREQ ] || continue;  echo -n performance > $CPUFREQ; done ",
+                        "  # Silent Install ",
+                        " yum install firewall -y -q -e 0 ",
+                        " yum install ntp -y -q -e 0 ",
+                        " yum install ntpdate -y -q -e 0 ",
+                        #" ntpdate ",
+                       ### " ntpdate 1.ro.pool.ntp.org ",
+                        " ntpstat ",
+                        " systemctl enable chronyd ",
+                        " systemctl restart chronyd ",
+                        " swapoff --all ",
+                        " sed -e '/swap/ s/^#*/#/' -i /etc/fstab ",
+                        " cat /etc/fstab ",
+                        " ulimit -a ",
+                        " echo 0 > /proc/sys/vm/zone_reclaim_mode ",
+                        " echo \"cassandra    hard    nproc         32768 \" >>/etc/security/limits.d/90-nproc.conf ",
+                        " echo \"cassandra    soft    nproc         32768 \" >>/etc/security/limits.d/90-nproc.conf ",
+                        ' echo "transparent_hugepage=never" >>  /etc/default/grub ',
+                        ' echo "if test -f /sys/kernel/mm/transparent_hugepage/enabled; then " >> /etc/rc.local ',
+                        ' echo "   echo never > /sys/kernel/mm/transparent_hugepage/defrag  " >> /etc/rc.local ',
+                        ' echo "fi " >> /etc/rc.local ',
+                        " echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag ",
+                        " chmod +x /etc/rc.d/rc.local ",
+                        " echo deadline > /sys/block/xvdf/queue/scheduler ",
+                        " echo deadline > /sys/block/xvdg/queue/scheduler ",
+                        " echo deadline > /sys/block/xvdh/queue/scheduler "
+                       ]
+                    }
+                  },
+                  {
+                    "action": "aws:runShellScript",
+                    "name": "installCassandra",
+                    "inputs": {
+                      "runCommand": [
+                        " cd /products " , 
+                        " aws s3 cp s3://{{CASSS3BucketName}}/database/playbook/cassandra-db-ec2.zip /products/ " ,
+                        " unzip -q -o /products/cassandra-db-ec2.zip " ,
+                        " cd /products/cassandra-db-ec2/ ",
+                        ' echo -e "$HOSTNAME" >> inventory/hosts.yml ',
+                        " cat /products/cassandra-db-ec2/inventory/hosts.yml ",
+                        ' ansible-playbook /products/cassandra-db-ec2/playbook_install.yml --limit "$HOSTNAME" -e "envrn={{Envrn}} solr_enabled={{SolrEnabled}} spark_enabled={{SparkEnabled}} DSE_VERSION={{DSEVersion}} rack={{Rack}} dc={{DataCenter}} AGENT_VERSION={{AgentVersion}} CASS_CLUSTER={{ClusterName}}" ',
+                        " rm -rf /products/cassandra-db-ec2.zip /products/cassandra-db-ec2"
+                      ]
+                    }
+                  }
+                 ]
+               }

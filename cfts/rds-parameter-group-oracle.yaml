@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for Deltas Default RDS Parameter Group for Oracle RDS instances
+
+Resources:
+  oracle:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: Delta Default Oracle Parameter Group
+      Family: oracle-ee-19
+      Tags:
+        - Key: Name
+          Value: delta-oracle-19
+      Parameters:
+        open_cursors: 315
+
+  MySQLParameterGroupParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /delta/rds/parametergroup/oracle
+      Type: String
+      Value: !Ref oracle
+      Tier: Standard
+      Description: SSM Parameter for the name of the Oracle RDS Parameter Group that all Oracle RDS instances should use.

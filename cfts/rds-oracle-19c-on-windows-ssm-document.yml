@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating the ssm document to configure oracle 19c on windows
+Parameters:
+  Oracle19cClientLocationS3Bucket:
+    Type: String
+    Description: Bucket where 19c packages are located
+    Default: "delta-postcfg-artifacts-us-east-1"
+  Oracle19cClientLocationS3KeyPrefix:
+    Type: String
+    Description: Folder location in S3 bucket where 19c packages are located
+    Default: "database/clients/oracle/19/windows/instaclient/rtsm"
+Resources:
+    InstallOracle19cSSMDocument:
+        Type: AWS::SSM::Document
+        Properties:
+            DocumentType: Command
+            Name: 'windows-oracle-19c-install'
+            Content :
+              {
+                "schemaVersion": "2.2",
+                "description": "Command document that will install oracle 19c on windows box",
+                "parameters":{
+                  "Oracle19cClientLocationS3Bucket":{
+                  "type": "String",
+                  "description":"S3 bucket name where the oracle 19c packages are located",
+                  "default" : {"Ref":"Oracle19cClientLocationS3Bucket"}
+                  },
+                  "Oracle19cClientLocationS3KeyPrefix":{
+                  "type": "String",
+                  "description":"Key name inside S3 bucket where the oracle 19c packages  are located",
+                  "default" : {"Ref":"Oracle19cClientLocationS3KeyPrefix"}
+                  }
+                },
+                "mainSteps": [
+                  {
+                    "action": "aws:runPowerShellScript",
+                    "name": "example",
+                    "inputs": {
+                      "runCommand": [ 
+                        "  Clear-Host",
+                        "  ",
+                        "  $LogFileName = \"$(Get-Date -Format MMddyyyyhhmmss)-oracle-19c-install-ssm.log\"",
+                        "  Start-Transcript -Path \"C:\\ssmlogs\\$LogFileName\" -Force -Append -NoClobber",
+                        "  ",
+                        "  $Oracle19cPackageDownloadPath = \"E:\\AWS\\Oracle-19600\"",
+                        "  $Oracle19cPackagesS3BucketLocation = \"{{Oracle19cClientLocationS3Bucket}}\"",
+                        "  $Oracle19cPackagesS3KeyPrefix = \"{{Oracle19cClientLocationS3KeyPrefix}}\"",
+                        "  $Oracle19cPackagesS3URI = \"s3://$Oracle19cPackagesS3BucketLocation/$Oracle19cPackagesS3KeyPrefix\"",
+                        "  $ScriptNameToInstallScriptName = \"OracleClientInstaller19.6.0.0.0.ps1\"",
+                        "  $Ora64BasePath = \"E:\\products\\database\\oracle\\19.0.0\\client\"",
+                        "  $ConfigPath = \"$Ora64BasePath\\config\"",
+                        "  ",
+                        "  function CreateDirOnLocal($location)",
+                        "  {",
+                        "      New-Item -ItemType Directory -Force  -Path $location | Out-Null",
+                        "      return Test-Path $location",
+                        "  }",
+                        "  ",
+                        "  Write-Host \"Creating directory $Oracle19cPackageDownloadPath\"",
+                        "  ",
+                        "  # create the directory where the oracle19c related packages will be downloaded",
+                        "  if(!(CreateDirOnLocal -location $Oracle19cPackageDownloadPath))",
+                        "  {",
+                        "      Write-Error \"Failed to create directory at $Oracle19cPackageDownloadPath. Script will exit now\"",
+                        "      Exit",
+                        "  }",
+                        "  ",
+                        "  Write-Host \"Creating directory $Ora64BasePath\"",
+                        "  ",
+                        "  # create the directory where the oracle 19c will be installed",
+                        "  if(!(CreateDirOnLocal -location $Ora64BasePath))",
+                        "  {",
+                        "      Write-Error \"Failed to create directory at $Ora64BasePath. Script will exit now\"",
+                        "      Exit",
+                        "  }",
+                        "  ",
+                        "  Write-Host \"Creating directory $ConfigPath\"",
+                        "  ",
+                        "  # create the directory where the config file added for oracle 19c",
+                        "  if(!(CreateDirOnLocal -location $ConfigPath))",
+                        "  {",
+                        "      Write-Error \"Failed to create directory at $ConfigPath. Script will exit now\"",
+                        "      Exit",
+                        "  }",
+                        "  ",
+                        "  # now lets get the packages from S3 bucket and download them to local machine",
+                        "  Write-Host \"Downloading Oracle 19c  related packages from $Oracle19cPackagesS3URI to $Oracle19cPackageDownloadPath\"",
+                        "  aws s3 cp $Oracle19cPackagesS3URI $Oracle19cPackageDownloadPath --recursive",
+                        "  ",
+                        "  Write-Host \"Downloaded Oracle 19c related packages from $Oracle19cPackagesS3URI to $Oracle19cPackageDownloadPath\"",
+                        "  ",
+                        "  # now lets install oracle 19c",
+                        "  Write-Host \"install Oracle 19c $ScriptNameToInstallScriptName\"",
+                        "  try {",
+                        "       Invoke-Expression \"$Oracle19cPackageDownloadPath\\$ScriptNameToInstallScriptName $Ora64BasePath –Install\"",
+                        "  } catch {",
+                        "       Write-Error \"Error occured while running oracle 19c installer $ScriptNameToInstallScriptName  $_\"",
+                        "  }",
+                        "  ",
+                        " # now lets grant full access on the directory config, where the sqlnet.ora and tnsnames.ora",
+                        " Write-Host Grant full access on the directory config, where the sqlnet.ora and tnsnames.ora",
+                        " $ACL = Get-Acl -Path $ConfigPath",
+                        " $Permission = 'Everyone', 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow'", 
+                        " $Rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList $permission", 
+                        " try {",
+                        "      $ACL.SetAccessRule($Rule)",
+                        "      $ACL | Set-Acl -Path $ConfigPath",
+                        " } catch {",
+                        "       Write-Error \"Error occured while grant full access on the directory config $_\"",
+                        " }",
+                        "  ",
+                        " Write-Host Oracle 19c installation completed",
+                        " Stop-Transcript",
+                        "  "
+                      ]
+                    }
+                  }
+                ]
+              }

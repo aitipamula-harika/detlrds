@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for Deltas RDS CloudWatch Alarms
+
+Parameters:
+  blockCode:
+    Type: String
+    Description: Enter the 10 character Blockcode (in uppercase ) for this RDS instance
+    AllowedPattern: '^[a-z0-9]{10}$'
+    ConstraintDescription: The Blockcode must entered in uppercase and must be 10 characters long
+  s3Bucket:
+    Type: String
+    Description: S3 bucket where the code for the lambda function is stored.
+    Default: delta-postcfg-artifacts-us-east-1
+  s3Object:
+    Type: String
+    Description: Name of the S3 object that the code for the rds alert filtering lambda is stored.
+    Default: database/lambdas/rds-montioring-events-v1.zip
+  SNSSubscriberMySQL:
+    Type: String
+    Default: rob.williams@delta.com
+  SNSSubscriberOracle:
+    Type: String
+    Default: aruna.manyam@delta.com
+  SNSSubscriberPostgres:
+    Type: String
+    Default: ITxPostgresqlSupport@delta.com
+  SNSSubscriberMSSQL:
+    Type: String
+    Default: pamela.d.hicks@delta.com
+  SnowSNSTopicARN:
+    Type: String
+    Description: The SNS Topic Arn for creating a SNOW incident
+  SnowActEventsList:
+    Type: String
+    Description: List of all actionable events for which SNOW Alert will be created. Add event here if you want to recieve snow alerts. 
+    Default: "DB instance shutdown.,An error has occurred while restarting RDS instance,The DB instance has been added to a security group.,The DB instance is being converted to a Multi-AZ DB instance.,The DB instance is being converted to a Single-AZ DB instance.,Applying modification to database instance class.,Automatic backups for this DB instance have been disabled.,The DB instance has been removed from a security group.,The DB instance has been deleted.,A Multi-AZ failover that resulted in the promotion of a standby instance has started.,The instance has recovered from a partial failover.,The DB instance has failed due to an incompatible configuration or an underlying storage issue. Begin a point-in-time-restore for the DB instance.,The DB instance is in an incompatible network. Some of the specified subnet IDs are invalid or do not exist.,The DB instance has invalid parameters. For example, if the DB instance could not start because a memory-related parameter is set too high for this instance class, the customer action would be to modify the memory parameter and reboot the DB instance.,Offline maintenance of the DB instance is taking place. The DB instance is currently unavailable."
+  EmailActEventsList:
+    Type: String
+    Description: List of all events for which we want email to be sent. Add event here if you want to recieve email alerts
+    Default: "DB instance restarted.,Finished DB Instance backup.,The current storage settings for this DB instance are being changed.,A parameter group for this DB instance has changed.,A parameter group for this DB instance has finished updating.,Automatic backups for this DB instance have been enabled.,
+The DB instance has been converted to a Multi-AZ DB instance.,The DB instance has been converted to a Single-AZ DB instance.,The DB instance class for this DB instance has changed.,The storage settings for this DB instance have changed.,An attempt to reset the master password for the DB instance has failed.,The Enhanced Monitoring configuration has been changed.,The DB instance has been deleted.,Amazon RDS is not attempting a requested failover because a failover recently occurred on the DB instance,A Multi-AZ failover that resulted in the promotion of a standby instance has started,
+A Multi-AZ failover that resulted in the promotion of a standby instance is complete. It may take several minutes for the DNS to transfer to the new primary DB instance.,The instance has recovered from a partial failover.,A Multi-AZ failover has completed.,A Multi-AZ activation has started after a successful instance recovery.,A Multi-AZ activation is complete. Your database should be accessible now.,The DB instance has failed due to an incompatible configuration or an underlying storage issue. Begin a point-in-time-restore for the DB instance.,Error while creating Statspack user account PERFSTAT. Please drop the account before adding the Statspack option.,The DB instance has consumed more than 90% of its allocated storage. You can monitor the storage space for a DB instance using the Free Storage Space metric. For more information, see Viewing DB instance metrics.,The allocated storage for the DB instance has been consumed. To resolve this issue, allocate additional storage for the DB instance. For more information, see the RDS FAQ. You can monitor the storage space for a DB instance using the Free Storage Space metric. For more information, see Viewing DB instance metrics.,Offline maintenance of the DB instance is taking place. The DB instance is currently unavailable.,Offline maintenance of the DB instance is complete.Finished updating DB parameter group."
+  costCenterParameter:
+    Description: The value for the costCenter tag .
+    Type: String
+    Default: TEST
+  iServerIDParameter:
+    Description: The value for the iServerID
+    Type: String
+    Default: TEST
+  dataClassificationParameter:
+    Description: The value for the dataClassificationParameter tag.
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: internal
+  supportGroupParameter:
+    Description: The value for the supportGroup.
+    Type: String
+    Default: TEST
+  changeGroupParameter:
+    Description: The value for the assignmentGroup
+    Type: String
+    Default: TEST
+  appCriticalityTierParameter:
+    Type: String
+    Description: The value for the appCritiality tag
+    AllowedValues: ['MV', 'MC', 'BC', 'BE', 'B']
+    Default: B
+
+
+Resources:
+
+  # THE FOLLOWING RESOURCE CREATES AN IAM ROLE THAT IS USED IN THE LAMBDA FUNCTION THAT FILTERS ALL RDS MESSAGES.
+  LambdaRoleArnForRDSMessageFilter:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'delegate-admin-lambda-filter-rds-messages'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: '*'
+              - Effect: Allow
+                Action: rds:DescribeDBInstances
+                Resource: '*'
+              - Effect: Allow
+                Action: rds:DescribeDBSnapshots
+                Resource: '*'
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      PermissionsBoundary:
+        Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+
+
+  # THE FOLLOWING RESOURCE CREATES THE PERMISSION FOR SNS TO INVOKE THE LAMBDA FUNCTION
+  PermissionForSNSToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RDSMessageFilterLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "sns.amazonaws.com"
+      SourceArn: !Ref SNSTopicForAllRDSMessages
+
+
+  # THE FOLLOWING RESOURCE CREATES A LAMBDA FUNCTION THAT WILL RECEIVE AN IMCOMING MESSAGE FROM SNS
+  # AND THEN FORWARD TO A DIFFERENT SNS TOPIC DEPENDING ON THE RELATED DB ENGINE
+  RDSMessageFilterLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: rds-message-filter
+      Handler: rds-monitoring-events-v1.lambda_handler
+      Runtime: python3.8
+      Description: 'This function receives incoming messages from the default RDS SNS topic and then forwards them to individual SNS topics depending on their engine type.'
+      Environment:
+        Variables:
+          ORACLE_SNS_TOPIC: !Ref SNSTopicForOracleRDSMessages
+          MYSQL_SNS_TOPIC: !Ref SNSTopicForMySQLRDSMessages
+          MSSQL_SNS_TOPIC: !Ref SNSTopicForMSSQLRDSMessages
+          POSTGRES_SNS_TOPIC: !Ref SNSTopicForPostgresRDSMessages
+          SNOW_SNS_TOPIC_ARN: !Ref SnowSNSTopicARN
+          ACT_EVENTS_LIST: !Ref SnowActEventsList
+          EMAIL_EVENTS_LIST: !Ref EmailActEventsList
+      MemorySize: 128
+      Timeout: 300
+      Role: !GetAtt LambdaRoleArnForRDSMessageFilter.Arn
+      Code:
+        S3Bucket: !Ref s3Bucket
+        S3Key: !Ref s3Object
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityTierParameter
+        - Key: blockCode
+          Value: !Ref blockCode
+
+
+
+  # THE FOLLOWING RESOURCE CREATE A SNS TOPIC THAT WE CAN SEND ALL RDS MESSAGES TO.  A LAMBDA FUNCTION WILL BE THE
+  # SOLE SUBSCRIBER TO THIS TOPIC.  THE LAMBDA WILL EVALUATE THE MESSAGE AND FORWARD IT TO
+  # RESPECTIVE SNS TOPICS BASED ON THE DB ENGINE.
+  SNSTopicForAllRDSMessages:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !GetAtt RDSMessageFilterLambda.Arn
+          Protocol: lambda
+      TopicName: "RDS-Alerts-All"
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityTierParameter
+
+  # THE FOLLOWING RESOURCE CREATES AN SNS TOPIC SPECIFIC TO ORACLE MESSAGES
+  SNSTopicForOracleRDSMessages:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref SNSSubscriberOracle
+          Protocol: email
+      TopicName: "RDS-Alerts-Oracle"
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityTierParameter
+          
+
+  # THE FOLLOWING RESOURCE CREATES AN SNS TOPIC SPECIFIC TO POSTGRES MESSAGES
+  SNSTopicForPostgresRDSMessages:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref SNSSubscriberPostgres
+          Protocol: email
+      TopicName: "RDS-Alerts-Postgres"
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityTierParameter
+          
+
+  # THE FOLLOWING RESOURCE CREATES AN SNS TOPIC SPECIFIC TO MYSQL MESSAGES
+  SNSTopicForMySQLRDSMessages:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref SNSSubscriberMySQL
+          Protocol: email
+      TopicName: "RDS-Alerts-MySQL"
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityTierParameter
+          
+  # THE FOLLOWING RESOURCE CREATES AN SNS TOPIC SPECIFIC TO MSSQL MESSAGES
+  SNSTopicForMSSQLRDSMessages:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref SNSSubscriberMSSQL
+          Protocol: email
+      TopicName: "RDS-Alerts-MSSQL"
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityTierParameter
+          
+  # THE FOLLOWING RESOURCE CREATES EVENT SUBSCRIPTIONS WHICH SEND ALL RDS EVENTS RELATED TO RDS INSTANCES TO A SNS TOPIC
+  RDSInstanceEventSubscription:
+    Type: "AWS::RDS::EventSubscription"
+    Properties:
+      SourceType: db-instance
+      Enabled: true
+      SnsTopicArn: !Ref SNSTopicForAllRDSMessages
+          
+  # THE FOLLOWING RESOURCE CREATES EVENT SUBSCRIPTIONS WHICH SEND ALL RDS EVENTS RELATED TO PARAMETER GROUPS TO A SNS TOPIC
+  RDSParameterGroupEventSubscription:
+    Type: "AWS::RDS::EventSubscription"
+    Properties:
+      SourceType: db-parameter-group
+      Enabled: true
+      SnsTopicArn: !Ref SNSTopicForAllRDSMessages
+
+  # THE FOLLOWING RESOURCE CREATES EVENT SUBSCRIPTIONS WHICH SEND ALL RDS EVENTS RELATED TO SECURITY GROUPS TO A SNS TOPIC
+  RDSSecurityGroupEventSubscription:
+    Type: "AWS::RDS::EventSubscription"
+    Properties:
+      SourceType: db-security-group
+      Enabled: true
+      SnsTopicArn: !Ref SNSTopicForAllRDSMessages
+
+  # THE FOLLOWING RESOURCE CREATES EVENT SUBSCRIPTIONS WHICH SEND ALL RDS EVENTS RELATED TO SNAPSHOT TO A SNS TOPIC
+  RDSSnapshotEventSubscription:
+    Type: "AWS::RDS::EventSubscription"
+    Properties:
+      SourceType: db-snapshot
+      Enabled: true
+      SnsTopicArn: !Ref SNSTopicForAllRDSMessages

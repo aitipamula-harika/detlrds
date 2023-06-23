@@ -1,0 +1,1158 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating EC2 instance and installing SQL Server or other RDBMS systems on it.
+
+Metadata:
+  #UnusedParams: # cfn-lint ignore
+  #  SailPointEnv: !Ref SailPointEnv
+
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: "General Parameters"
+        Parameters:
+          - backup
+          - InstanceType
+          - osVersion
+          - PostConfigType
+          - EC2IAMInstanceProfileName
+          - ServerType
+          - DomainEnv
+          - SubnetSelection
+      - Label:
+          default: "Application Parameters"
+        Parameters:
+          - ProjectName
+          - blockCode
+          - firstblockCode
+          - appSupportEmail
+      - Label:
+          default: "Monitoring Profile Parameter"
+        Parameters:
+          - entMonitoringProfile
+      - Label:
+          default: "Patching Parameters"
+        Parameters:
+          - OSPatchDay
+          - OSPatchHour
+          - OOBPatchGroup
+          - OSPatchWeek
+      - Label:
+          default: "Drive Sizes"
+        Parameters:
+          - EDriveSize
+          - FDriveSize
+          - GDriveSize
+          - HDriveSize
+          - IDriveSize
+      - Label:
+          default: "Sailpoint Integration Parameters"
+        Parameters:
+          - AdminPrimaryOwner
+          - AdminSecondaryOwners
+          - ApplicationPrimaryOwner
+          - ApplicationSecondaryOwners
+          - gdprIndicator
+          - piiIndicator
+      - Label:
+          default: "General Tagging Parameters"
+        Parameters:
+          - costCenter
+          - uniqueId
+          - dataClassification
+          - supportGroup
+          - changeGroup
+          - drTier
+          - pciIndicator
+          - phiIndicator
+          - cuiIndicator
+          - soxIndicator
+
+Parameters:
+  backup:
+    Type: String
+    Description: Refers to whether data protection is required or not required.
+    AllowedValues: ["true", "false"]
+    Default: "true"
+
+  InstanceType:
+    Type: String
+    Description: Select the instance type you would like to use in your launch templates
+    AllowedValues:
+      - m5.large
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - r5.large
+      - r5.xlarge
+      - r5.2xlarge
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
+    Default: t3.large
+
+  osVersion:
+    Type: String
+    Description: Select the windows OS Version you would like to use
+    AllowedValues: ["windows-2016", "windows-2019"]
+    Default: windows-2016
+
+  dbEngine:
+    Type: String
+    AllowedValues: ["dbserver-sql2019std", "dbserver-sql2019ee"]
+    Description: Please provide the Database engine name and version details
+    Default: "dbserver-sql2019std"
+
+  blockCode:
+    Type: String
+    Description: Enter the block code for the project
+    AllowedPattern: ^[a-zA-Z0-9]{10}$
+    Default: IIMDBAMSQL
+
+  applicationBlockCode:
+    Type: String
+    Description: Enter the block code of the application
+    AllowedPattern: ^[a-zA-Z0-9]{10}$
+    Default: whatiscode
+
+  firstblockCode:
+    Type: String
+    Description: A flag indicating whether or not this is the first stack which uses the blockcode or not
+    AllowedValues: ["true", "false"]
+    Default: "false"
+
+  appSupportEmail:
+    Type: String
+    Description: Enter a tag value for application support group email ID
+    Default: "it_sqlserverdba@delta.com"
+
+  ProjectName:
+    Type: String
+    Description: Enter the name for the project
+
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+    # production
+    # systems-integration
+    # development
+
+  EC2IAMInstanceProfileName:
+    Type: String
+    Description: The Name of the IAM Instance Profile that should be used when creating the EC2 Launch Template
+    Default: DeltaMigrationEC2Role
+
+  # remove other server types once it is confirmed
+  ServerType:
+    Type: String
+    Default: database
+    AllowedValues:
+      - application
+      - database
+      - dc
+      - citrix
+      - web
+
+  DomainEnv:
+    Type: String
+    Default: CFITDELTA.CFITRL.Delta.com
+    AllowedValues:
+      - DELTA.RL.Delta.com
+      - CFITDELTA.CFITRL.Delta.com
+      - VAD.VS.AIR4.com
+      - SI.VAD.VS.AIR4.com
+      - VSNonProd.AWS.AIR4.com
+      - CORPORATE.mem
+      - EVProd.AWS.Delta.com
+      - EVNonProd.AWS.Delta.com
+      - DLNonProd.AWS.Delta.com
+      - DLProd.AWS.Delta.com
+
+  entMonitoringProfile:
+    Type: String
+    Description: Select the Monitoring Profile
+    Default: BaseOS
+    AllowedValues:
+      - NoMonitoring
+      - BaseOS
+      - BaseOSInfraApp
+      - BaseOSAPM
+      - BaseOSAPMInfraApp
+      - BaseOSLoggingAnalytics
+      - BaseOSAPMLoggingAnalytics
+      - BaseOSAPMInfraAppLoggingAnalytics
+      - BaseOSLogging
+      - BaseOSCustom
+
+  OSPatchWeek:
+    Type: String
+    Description: The week that you would like the OS on this instance patched on.  Note that only production instances can choose between week1 and week2, all others have to be on week 1.
+    AllowedValues: ["wk1", "wk2"]
+    Default: "wk1"
+
+  OSPatchDay:
+    Type: String
+    Description: The day that you would like the OS on this instance patched on.  Note that non-prd instances will get patched during the 1st week of the 14-day patch cycle whereas prd instances will get patched in the 2nd week of the 14-day patch cycle.
+    AllowedValues: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    Default: "mon"
+
+  OSPatchHour:
+    Type: String
+    Description: The hour (2 digit) that you would like the OS for this instance patched on.
+    AllowedValues: ["01", "03", "19", "22"]
+    Default: "01"
+
+  OOBPatchGroup:
+    Type: String
+    Description: The Out of Band (OOB) patch schedule you would like to use for this instance.
+    AllowedValues:
+      [
+        "dev-day-1-1800",
+        "si-day-2-1800",
+        "prd-day-3-2000",
+        "prd-day-4-2200",
+        "prd-day-5-2400",
+        "prd-day-6-0200",
+        "prd-day-7-0400",
+      ]
+    Default: "dev-day-1-1800"
+
+  SailPointEnv:
+    Type: String
+    Description: Select the SailPoint Environment
+    AllowedValues: ["Corp AD", "CFITDelta AD"]
+    Default: "CFITDelta AD"
+
+  EDriveSize:
+    Type: Number
+    Description: Enter the volume size for the E Drive (Installbits) (in GB)
+    Default: 40
+
+  FDriveSize:
+    Type: Number
+    Description: Enter the volume size for the F Drive (Tempdb) (in GB)
+    Default: 50
+
+  GDriveSize:
+    Type: Number
+    Description: Enter the volume size for the G Drive (DBDataFiles) (in GB)
+    Default: 250
+
+  HDriveSize:
+    Type: Number
+    Description: Enter the volume size for the H Drive (Tranlogs) (in GB)
+    Default: 250
+
+  IDriveSize:
+    Type: Number
+    Description: Enter the volume size for the I Drive (DBBackups) (in GB)
+    Default: 250
+
+  SubnetSelection:
+    Type: String
+    Description: Please select a subnect in which to create your instance
+    AllowedValues:
+      [
+        "privatesubnet1aid",
+        "privatesubnet2aid",
+        "privatesubnet3aid",
+        "webappsubnet1aid",
+        "webappsubnet1bid",
+        "webappsubnet1cid",
+        "webappsubnet2aid",
+        "webappsubnet2bid",
+        "webappsubnet2cid",
+        "datasubnet1aid",
+        "datasubnet1bid",
+        "datasubnet1cid",
+        "datasubnet1did", 
+      ]
+    Default: datasubnet1aid
+
+  PostConfigType:
+    Type: String
+    Description: Select the windows OS post config Type
+    AllowedValues: ["WINDOWS-BASE", "WINDOWS-IIS"]
+    Default: WINDOWS-BASE
+
+  # SAILPOINT PARAMETERS
+  AdminPrimaryOwner:
+    Type: String
+    Description: Primary owner user id (6 digit) that should be set on the Admin AD group which sailpoint creates
+    Default: "896944"
+
+  AdminSecondaryOwners:
+    Type: String
+    Description: Comma delimited list of secondary owner user ids (6 digit) that should be set on the Admin AD group which sailpoint creates
+    Default: "711590"
+
+  gdprIndicator:
+    Type: String
+    Description: Refers to the general data protection regulation category of information
+    AllowedValues: ["true", "false"]
+    Default: "false"
+
+  piiIndicator:
+    Type: String
+    Description: Refers to any personal identifiable information related to an individual.
+    AllowedValues: ["true", "false"]
+    Default: "false"
+
+  # GENERAL TAGGING PARAMETERS
+  costCenter:
+    Description: The value for the costCenter tag. Example C####ATG
+    AllowedPattern: ^C[0-9]{4}ATG$
+    Type: String
+    Default: C8110ATG
+
+  uniqueId:
+    Description: The unique ideentifier for the instance.
+    AllowedPattern: ^(D|A)[0-9]{7}$
+    Type: String
+    Default: D1234567
+
+  dataClassification:
+    Description: The value for the dataClassificationParameter tag
+    Type: String
+    AllowedValues: ["internal", "public", "confidential", "restricted"]
+    Default: internal
+
+  supportGroup:
+    Description: The value for the supportGroup tag.
+    AllowedPattern: ^[A-Za-z0-9_ -]+$
+    Type: String
+    Default: DBA-SQL Server Support
+
+  changeGroup:
+    Description: Identifies the ServiceNow group of the application owner who owns the AWS resource. The tag value needs to be an exact match of the ServiceNow group.
+    AllowedPattern: ^[A-Za-z0-9_ -]+$
+    Type: String
+    Default: DBA-SQL Server Support
+
+  drTier:
+    Type: String
+    Description: A tier designation, which defines the chronological order of recovery for an application during an IT Disaster event.
+    AllowedValues:
+      [
+        "mission vital",
+        "mission critical",
+        "business critical",
+        "business essential",
+        "business",
+      ]
+    Default: "business"
+
+  phiIndicator:
+    Type: String
+    Description: Refers to any health information (medical and insurance) related to an individual.
+    AllowedValues: ["true", "false"]
+    Default: "false"
+
+  pciIndicator:
+    Type: String
+    Description: Refers to the category used for credit cardholder data and sensitive authentication data.
+    AllowedValues: ["true", "false"]
+    Default: "false"
+
+  soxIndicator:
+    Type: String
+    Description: Refers to any information that has a direct and material impact on Delta’s financial reporting.
+    AllowedValues: ["true", "false"]
+    Default: "false"
+
+  cuiIndicator:
+    Type: String
+    Description: Refers to the category of unclassified information within the U.S. Federal government. Confidential.
+    AllowedValues: ["true", "false"]
+    Default: "false"
+
+  SAPasswordSecretName:
+    Description: >-
+      Name of the SA password secret. Secret names must be Hierarchal for scalabilty, for example (prod/Databases/MySQL),
+      You must also provide values for (EnvironmentType and ApplicationBlockCode) parameters to complete the path of the 
+      secret name.
+    Type: String
+    Default: SAPassword
+
+  iServerID:
+    Description: The value for the iServerID tag
+    Type: String
+
+  assignmentGroup:
+    Description: The value for the assignmentGroup tag
+    Type: String
+    Default: DBA-SQL Server Support
+
+  computeEngineeringProdAccountNumber:
+    Type: String
+    Default: "126202423078"
+    Description: "Account number of computeeng-prd"
+
+  DeltaPrivateNetworkPrefixesListId:
+    Type: String
+    Description: Prefixes List Id (Important one is Delta Private Network Prefix List Id)
+    Default: "pl-05a3c87e010904082"
+
+  ApplicationSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Application security group Ids
+
+  #SQL Install related parameters. These will be passed to the SSM document
+  S3BucketNameForSQLServerRelatedArtifacts:
+    Type: String
+    Description: S3 Bucket Name For SQL Server Setup Related Artifacts
+    Default: "delta-rds-artifacts-us-east-1"
+  S3KeyLocationForSQLServerSetupFile:
+    Type: String
+    Description: S3 Key Location For SQL Server Setup File
+    Default: "database/software-repository/SqlServer"
+  S3KeyLocationForSQLServerSetupConfigurationFile:
+    Type: String
+    Description: S3 Key Location For SQL Server Setup Configuration File
+    Default: "database/software-repository/SqlServer"
+  SQLServerSetupConfigurationFileNameOnS3:
+    Type: String
+    Description: SQL Server Setup Configuration File Name On S3
+    Default: "SQL-2019-ConfigurationFile.ini"
+  S3KeyLocationForSQLServerPowerShellModuleFile:
+    Type: String
+    Description: S3 Key Location For SQL Server PowerShell Module File
+    Default: "database/software-repository/SqlServer"
+  SQLServerPowerShellFileNameOnS3:
+    Type: String
+    Description: SQL Server PowerShell Module File Name On S3
+    Default: "powershell-module-sqlserver.zip"
+  S3KeyLocationForDefaultDatabaseCreationSQLScriptFile:
+    Type: String
+    Description: S3 Key Location For Default database creation script
+    Default: "database/software-repository/SqlServer"
+  DefaultDatabaseCreationSQLScriptFileNameOnS3:
+    Type: String
+    Description: SQL Server Default Database creation script File Name On S3
+    Default: "mssql_db_create.sql"
+  S3KeyLocationForMonitoringScripts:
+    Type: String
+    Description: S3 Key Location For Monitoring scripts
+    Default: "database/scripts/mssql-on-ec2-scripts/monitoring-scripts/current"
+  S3KeyLocationForBackupScripts:
+    Type: String
+    Description: S3 Key Location For Backup scripts
+    Default: "database/scripts/mssql-on-ec2-scripts/backup-scripts/current"
+  S3KeyLocationForDBMailSetupScripts:
+    Type: String
+    Description: S3 Key Location For Database Mail Setup scripts
+    Default: "database/scripts/mssql-on-ec2-scripts/db-mail-config-scripts/current"
+  S3KeyLocationForSSRSSetupFile:
+    Type: String
+    Description: S3 Key Location For SSRS Setup File
+    Default: "database/software-repository/SqlServer"
+  SSRSSetupFileNameOnS3:
+    Type: String
+    Description: SSRS Setup File Name On S3
+    Default: "SQLServerReportingServices_2019.exe"
+  S3KeyLocationForSSMSSetupFile:
+    Type: String
+    Description: S3 Key Location For SSMS Setup File
+    Default: "database/software-repository/SqlServer"
+  SSMSSetupFileNameOnS3:
+    Type: String
+    Description: SSMS Setup File Name On S3
+    Default: "SSMS-Setup-ENU-1810.exe"
+  SQLInstanceNumber:
+    Type: String
+    Description: SQL Server instance number
+    Default: "01"
+  SQLInstanceIdPrefix:
+    Type: String
+    Description: SQL Server instance id prefix. (SQL Server instance number will be appended to it. so if you specify SQLInstanceNumber as 01 and SQLInstanceIdPrefix as MSSQLSERVER, your instance Id will be MSSQLSERVER01)
+    Default: "MSSQLSERVER"
+  DistributedReplayControllerName:
+    Type: String
+    Description: Distributed Replay Controller Name
+    Default: ""
+  InstallDatabaseEngine:
+    Type: String
+    Description: Install database engine on EC2
+    AllowedValues:
+      - "Yes"
+      - "No"
+    Default: "Yes"
+  InstallAnalysisService:
+    Type: String
+    Description: Install analysis service
+    AllowedValues:
+      - "Yes"
+      - "No"
+    Default: "No"
+  InstallReportingServices:
+    Type: String
+    Description: install reporting service
+    AllowedValues:
+      - "Yes"
+      - "No"
+    Default: "Yes"
+  InstallSQLServerManagementStudio:
+    Type: String
+    Description: install management studio
+    AllowedValues:
+      - "Yes"
+      - "No"
+    Default: "Yes"
+
+Mappings:
+  DataClassificationMap:
+    "internal":
+      "SailpointDataClassification": "Internal"
+    "public":
+      "SailpointDataClassification": "Public"
+    "confidential":
+      "SailpointDataClassification": "Confidential"
+    "restricted":
+      "SailpointDataClassification": "Restricted"
+  EnvironmentMap:
+    sandbox:
+      "singleAbbreviation": "l"
+      "abbreviation": "lab"
+      "patchabbreviation": "lab"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "dev-day-1-1800"
+    development:
+      "singleAbbreviation": "d"
+      "abbreviation": "dev"
+      "patchabbreviation": "dev"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "dev-day-1-1800"
+    systems-integration:
+      "singleAbbreviation": "i"
+      "abbreviation": "int"
+      "patchabbreviation": "si"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "si-day-2-1800"
+    production:
+      "singleAbbreviation": "p"
+      "abbreviation": "prd"
+      "patchabbreviation": "prd"
+      "mainCategory": "prd"
+      "oobPatchGroup": "get-from-parameters"
+    aws-central-services:
+      "singleAbbreviation": "p"
+      "abbreviation": "prd"
+      "mainCategory": "prd"
+      "patchabbreviation": "prd"
+      "oobPatchGroup": "get-from-parameters"
+
+Conditions:
+  IsFirstBlockCode: !Equals
+    - !Ref firstblockCode
+    - "true"
+  IsProductionAccount: !Equals
+    - !Ref Environment
+    - "production"
+  IsDevelopmentAccount: !Equals
+    - !Ref Environment
+    - "development"
+  IsSystemsIntegrationAccount: !Equals
+    - !Ref Environment
+    - "systems-integration"
+  IsIISInstance: !Equals
+    - !Ref PostConfigType
+    - "WINDOWS-IIS"
+
+Resources:
+  #LOAD BALANCER
+
+  #EC2 INSTANCE CREATION
+  PrimaryNI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Description: Primary NI for Windows instance
+      GroupSet:
+        - "{{resolve:ssm:/delta/ec2/infrastructure-sg-id:1}}"
+        - !GetAtt InstanceSecurityGroup.GroupId
+      SubnetId: !Sub "{{resolve:ssm:/delta/vpc/${SubnetSelection}:1}}"
+      Tags:
+        - Key: costCenter
+          Value: !Ref costCenter
+  SecondaryNI:
+    Condition: IsIISInstance
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Description: Secondary NI for IIS instance
+      GroupSet:
+        - "{{resolve:ssm:/delta/ec2/infrastructure-sg-id:1}}"
+        - !GetAtt InstanceSecurityGroup.GroupId
+      SubnetId: !Sub "{{resolve:ssm:/delta/vpc/${SubnetSelection}:1}}"
+      Tags:
+        - Key: costCenter
+          Value: !Ref costCenter
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupName: !Sub ${ProjectName}-windowsBase-${osVersion}-sg
+        GroupDescription: Allow ingress from custom resources
+        VpcId:
+          !Sub "{{resolve:ssm:/delta/vpc/vpcid}}"
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1433
+          ToPort: 1433
+          SourcePrefixListId : !Ref DeltaPrivateNetworkPrefixesListId
+        - IpProtocol: tcp
+          FromPort: 1433
+          ToPort: 1433
+          SourceSecurityGroupId : !Ref ApplicationSecurityGroupId
+
+  windowsBaseLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${ProjectName}-windowsBase-${osVersion}
+      LaunchTemplateData:
+        ImageId: !Sub "{{resolve:ssm:/delta/ec2/ami/${osVersion}/${AWS::Region}/latest:1}}"
+        InstanceType: !Ref InstanceType
+          
+        IamInstanceProfile:
+          Name: !Ref EC2IAMInstanceProfileName
+        BlockDeviceMappings:
+          - Ebs:
+              VolumeSize: !Ref EDriveSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !GetAtt CMKforSAPassword.Outputs.CMKARN
+            DeviceName: xvdf
+          - Ebs:
+              VolumeSize: !Ref FDriveSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !GetAtt CMKforSAPassword.Outputs.CMKARN
+            DeviceName: xvdg
+          - Ebs:
+              VolumeSize: !Ref GDriveSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !GetAtt CMKforSAPassword.Outputs.CMKARN
+            DeviceName: xvdh
+          - Ebs:
+              VolumeSize: !Ref HDriveSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !GetAtt CMKforSAPassword.Outputs.CMKARN
+            DeviceName: xvdi
+          - Ebs:
+              VolumeSize: !Ref IDriveSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !GetAtt CMKforSAPassword.Outputs.CMKARN
+            DeviceName: xvdj
+
+        NetworkInterfaces: !If
+          - IsIISInstance
+          - - NetworkInterfaceId: !Ref PrimaryNI
+              DeviceIndex: 0
+            - NetworkInterfaceId: !Ref SecondaryNI
+              DeviceIndex: 1
+          - - NetworkInterfaceId: !Ref PrimaryNI
+              DeviceIndex: 0
+
+        TagSpecifications:
+          - ResourceType: volume
+            Tags:
+              - Key: costCenter
+                Value: !Ref costCenter
+              - Key: uniqueId
+                Value: !Ref uniqueId
+              - Key: blockCode
+                Value: !Ref blockCode
+              - Key: supportGroup
+                Value: !Ref supportGroup
+              - Key: changeGroup
+                Value: !Ref changeGroup
+              - Key: dataClassification
+                Value: !Ref dataClassification
+              - Key: drTier
+                Value: !Ref drTier
+              - Key: dataClassification
+                Value: !Ref dataClassification
+              - Key: pciIndicator
+                Value: !Ref pciIndicator
+              - Key: soxIndicator
+                Value: !Ref soxIndicator
+              - Key: cuiIndicator
+                Value: !Ref cuiIndicator
+              - Key: phiIndicator
+                Value: !Ref phiIndicator
+  BaseWindowsInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: SQLServerSAEC2Secret
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref windowsBaseLaunchTemplate
+        Version: "1"
+      Tags:
+        - Key: costCenter
+          Value: !Ref costCenter
+        - Key: uniqueId
+          Value: !Ref uniqueId
+        - Key: dataClassification
+          Value: !Ref dataClassification
+        - Key: supportGroup
+          Value: !Ref supportGroup
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+        - Key: changeGroup
+          Value: !Ref changeGroup
+        - Key: postConfig
+          Value: !Ref PostConfigType
+        - Key: entMonitoringProfile
+          Value: !Ref entMonitoringProfile
+        - Key: osVersion
+          Value: !Ref osVersion
+        - Key: Name
+          Value: !GetAtt EC2NamingInvocation.name
+        - Key: Environment
+          Value: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+        - Key: alias
+          Value: !Sub
+            - ${prefix}.${accountname}.${suffix}
+            - {
+                prefix: !GetAtt EC2NamingInvocation.name,
+                accountname: "{{resolve:ssm:/org/member/account_name:1}}",
+                suffix: aws.delta.com,
+              }
+        - Key: blockCode
+          Value: !Ref blockCode
+        - Key: osPatchGroup
+          Value: !Sub
+            - os-win-${OSPatchEnvironment}-${OSPWeek}-${OSPatchDay}-${OSPatchHour}00
+            - {
+                OSPatchEnvironment:
+                  !FindInMap [
+                    EnvironmentMap,
+                    !Ref Environment,
+                    "patchabbreviation",
+                  ],
+                OSPWeek: !If [IsProductionAccount, !Ref OSPatchWeek, "wk1"],
+              }
+        - Key: oobPatchGroup
+          Value: !If
+            - IsProductionAccount
+            - !Ref OOBPatchGroup
+            - !FindInMap [EnvironmentMap, !Ref Environment, "oobPatchGroup"]
+        - Key: drTier
+          Value: !Ref drTier
+        - Key: dataClassification
+          Value: !Ref dataClassification
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: backup
+          Value: !Ref backup
+  SecondaryNIAlias:
+    Condition: IsIISInstance
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: "{{resolve:ssm:/delta/r53/hostedzoneid:1}}"
+      Name: !Sub
+        - "${shorthostname}-iis.${hostedzonedomain}"
+        - {
+            shorthostname: !GetAtt EC2NamingInvocation.name,
+            hostedzonedomain: "{{resolve:ssm:/delta/r53/hostedzonename:1}}",
+          }
+      Type: A
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt SecondaryNI.PrimaryPrivateIpAddress
+    DependsOn: SecondaryNI
+  SecondaryNIAliasCert:
+    Condition: IsIISInstance
+    Type: "AWS::CertificateManager::Certificate"
+    Properties:
+      CertificateAuthorityArn: !Sub "{{resolve:ssm:/delta/acm/pca/arn:1}}"
+      DomainName: !Sub
+        - "${shorthostname}-iis.${hostedzonedomain}"
+        - {
+            shorthostname: !GetAtt EC2NamingInvocation.name,
+            hostedzonedomain: "{{resolve:ssm:/delta/r53/hostedzonename:1}}",
+          }
+    DependsOn: SecondaryNIAlias
+
+  EC2RuntimeRole:
+    Condition: IsFirstBlockCode
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ["-", ["delegate-admin", !Ref blockCode]]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: "SsmAllowSendCommandViaBlockCode"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub "arn:aws:ec2:*:${AWS::AccountId}:instance/*"
+                  - !Sub "arn:aws:ssm:*:*:document/*"
+                Condition:
+                  ForAllValues:StringEquals:
+                    aws:ResourceTag/blockCode: !Ref blockCode
+        - PolicyName: "SsmAllowPolicyForRuntimeEC2"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:DescribeAssociation
+                  - ssm:GetDeployablePatchSnapshotForInstance
+                  - ssm:GetDocument
+                  - ssm:DescribeDocument
+                  - ssm:GetManifest
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:ListAssociations
+                  - ssm:ListInstanceAssociations
+                  - ssm:PutInventory
+                  - ssm:PutComplianceItems
+                  - ssm:PutConfigurePackageResult
+                  - ssm:UpdateAssociationStatus
+                  - ssm:UpdateInstanceAssociationStatus
+                  - ssm:UpdateInstanceInformation
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ssmmessages:CreateControlChannel
+                  - ssmmessages:CreateDataChannel
+                  - ssmmessages:OpenControlChannel
+                  - ssmmessages:OpenDataChannel
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ec2messages:AcknowledgeMessage
+                  - ec2messages:DeleteMessage
+                  - ec2messages:FailMessage
+                  - ec2messages:GetEndpoint
+                  - ec2messages:GetMessages
+                  - ec2messages:SendReply
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ec2:Describe*
+                  - ec2:*Tags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ds:CreateComputer
+                  - ds:DescribeDirectories
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetEncryptionConfiguration
+                  - s3:AbortMultipartUpload
+                  - s3:ListMultipartUploadParts
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:*Tagging
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - acm:ListCertificates
+                  - acm:ExportCertificate
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Sub "arn:aws:sns:${AWS::Region}:*:*"
+        - PolicyName: "SsmDenyPolicyForRuntimeEC2"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Deny
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/delta/ec2/restricted/*"
+              - Effect: Deny
+                Action:
+                  - iam:*InstanceProfile
+                  - ec2:*InstanceProfileAssociations
+                Resource: "*"
+      PermissionsBoundary:
+        !Join [
+          ":",
+          [
+            "arn:aws:iam:",
+            !Ref AWS::AccountId,
+            "policy/cft-developer-boundary-policy",
+          ],
+        ]
+  EC2InstanceProfile:
+    Condition: IsFirstBlockCode
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      InstanceProfileName:
+        !Join ["-", ["delegate-admin", !Ref blockCode, "instance-profile"]]
+      Path: /
+      Roles:
+        - Ref: EC2RuntimeRole
+
+  #LAMBDAS
+  EC2NamingInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !If
+        - IsProductionAccount
+        - !Sub arn:aws:sns:${AWS::Region}:094835659498:name_generator_topic
+        - !Sub arn:aws:sns:${AWS::Region}:148569397242:name_generator_topic
+      OSVersion: !Ref osVersion
+      Domain: !Ref DomainEnv
+      Environment: !FindInMap [EnvironmentMap, !Ref Environment, "mainCategory"]
+      Region: !Ref "AWS::Region"
+      ServerType: !Ref ServerType
+
+  EC2SailpointInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:sailpoint-group-creation
+      hostName: !GetAtt EC2NamingInvocation.name
+      domainName: !Ref SailPointEnv
+      primaryOwner: !Ref AdminPrimaryOwner
+      secondaryOwners: !Ref AdminSecondaryOwners
+      environment: !Ref Environment
+      dataClassification:
+        !FindInMap [
+          DataClassificationMap,
+          !Ref dataClassification,
+          "SailpointDataClassification",
+        ]
+      isPII: !Ref piiIndicator
+      isPCI: !Ref pciIndicator
+      isSOX: !Ref soxIndicator
+      isCUI: !Ref cuiIndicator
+      isGDPR: !Ref gdprIndicator
+
+  SQLServerSAEC2Secret:
+    Type: "AWS::SecretsManager::Secret"
+    DependsOn: CMKforSAPassword
+    Properties:
+      #Name: !Join [ "/", [!Ref Environment, !Ref SecretDirectory, !Ref SAPasswordSecretName]]
+      Name:
+        !Join [
+          "-",
+          [
+            !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+            !Ref applicationBlockCode,
+            !Ref SAPasswordSecretName,
+          ],
+        ]
+      KmsKeyId: !GetAtt CMKforSAPassword.Outputs.CMKARN
+      #This will change according to EC2 secret requirement
+      #SecretString: !Sub '{ ${SecretKey} : ${SecretValue} }'
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "sa"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+      #SecretString: !Sub '{ "${SecretKey}" : "${SecretValue}" }'
+      Tags:
+        - Key: costCenter
+          Value: !Ref costCenter
+        - Key: iServerID
+          Value: !Ref iServerID
+        - Key: dataClassification
+          Value: !Ref dataClassification
+        - Key: supportGroup
+          Value: !Ref supportGroup
+        - Key: assignmentGroup
+          Value: !Ref assignmentGroup
+        - Key: blockCode
+          Value: !Ref blockCode
+         
+
+  #The SecretsManager Secret ResourcePolicy
+  #in Mig-SI and Mig-Prod, DeveloperPowerUser is named as DeveloperPowerUserProvisioner. So change it accordingly when deploying. 
+  SQLServerSAEC2SecretPolicy:
+    Type: AWS::SecretsManager::ResourcePolicy
+    Properties:
+      BlockPublicPolicy: True
+      SecretId: !Ref SQLServerSAEC2Secret
+      ResourcePolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Resource: !Ref SQLServerSAEC2Secret
+            Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+              - secretsmanager:PutSecretValue
+              - secretsmanager:ListSecrets
+              - secretsmanager:TagResource
+              - secretsmanager:UntagResource
+              - secretsmanager:UpdateSecret
+              - secretsmanager:DeleteSecret
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/delegate-admin-${blockCode}
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/SystemBuilder
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/DeveloperPowerUserProvisioner
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/DBAOperator
+          - Resource: !Ref SQLServerSAEC2Secret
+            Action:
+              - secretsmanager:GetSecretValue
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/DBAOperator
+          - Resource: !Ref SQLServerSAEC2Secret
+            Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+              - secretsmanager:PutSecretValue
+              - secretsmanager:ListSecrets
+              - secretsmanager:TagResource
+              - secretsmanager:UntagResource
+              - secretsmanager:UpdateSecret
+              - secretsmanager:DeleteSecret
+            Effect: Deny
+            Principal:
+              AWS: "*"
+            Condition:
+              StringNotEquals:
+                aws:PrincipalArn:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/delegate-admin-${blockCode}
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/SystemBuilder
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/DeveloperPowerUserProvisioner
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/DBAOperator
+
+  # Add DBAOperator to below list for access only decrypt
+  CMKforSAPassword:
+    Type: AWS::ServiceCatalog::CloudFormationProvisionedProduct
+    Properties:
+      ProductName: "KMS CMK"
+      ProvisionedProductName:
+        !Join [
+          "-",
+          [
+            !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+            !Ref applicationBlockCode,
+            !Ref SAPasswordSecretName,
+            "cmk",
+          ],
+        ]
+      ProvisioningArtifactName: "1.8"
+      ProvisioningParameters:
+        - Key: KEYNAME
+          Value:
+            !Join [
+              "-",
+              [
+                !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+                !Ref applicationBlockCode,
+                !Ref SAPasswordSecretName,
+                "cmk",
+              ],
+            ]
+        - Key: KEYACCESS1
+          Value: DeveloperPowerUserProvisioner
+        - Key: KEY1PERMISSIONS
+          Value: Both
+        - Key: KEYACCESS2
+          Value: !Sub delegate-admin-${blockCode}
+        - Key: KEY2PERMISSIONS
+          Value: Decrypt
+        - Key: KEYACCESS3
+          Value: DBAOperator
+        - Key: KEY3PERMISSIONS
+          Value: Decrypt
+        - Key: SERVICENAME
+          Value: ""
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroup
+        - Key: costCenter
+          Value: !Ref costCenter
+        - Key: dataClassification
+          Value: !Ref dataClassification
+        - Key: UniqueID
+          Value: !Ref uniqueId
+        - Key: supportGroup
+          Value: !Ref supportGroup
+        - Key: AccountID
+          Value: !Sub ${AWS::AccountId}
+  SSMDocumentToCallSQLInstallSSMDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Content:
+        description: "Call Automation Document that will install SQL Server on EC2"
+        schemaVersion: "2.2"
+        mainSteps:
+          - action: aws:runDocument
+            name: installsqlserver
+            inputs:
+              documentType: SSMDocument
+              documentPath: dl-db-microsoft-sql-server-install
+              documentParameters:
+                {
+                  S3BucketNameForSQLServerRelatedArtifacts: !Ref S3BucketNameForSQLServerRelatedArtifacts,
+                  S3KeyLocationForSQLServerSetupFile: !Ref S3KeyLocationForSQLServerSetupFile,
+                  S3KeyLocationForSQLServerSetupConfigurationFile: !Ref S3KeyLocationForSQLServerSetupConfigurationFile,
+                  SQLServerSetupConfigurationFileNameOnS3: !Ref SQLServerSetupConfigurationFileNameOnS3,
+                  S3KeyLocationForSQLServerPowerShellModuleFile: !Ref S3KeyLocationForSQLServerPowerShellModuleFile,
+                  SQLServerPowerShellFileNameOnS3: !Ref SQLServerPowerShellFileNameOnS3,
+                  S3KeyLocationForDefaultDatabaseCreationSQLScriptFile: !Ref S3KeyLocationForDefaultDatabaseCreationSQLScriptFile,
+                  DefaultDatabaseCreationSQLScriptFileNameOnS3: !Ref DefaultDatabaseCreationSQLScriptFileNameOnS3,
+                  S3KeyLocationForMonitoringScripts: !Ref S3KeyLocationForMonitoringScripts,
+                  S3KeyLocationForBackupScripts: !Ref S3KeyLocationForBackupScripts,
+                  S3KeyLocationForDBMailSetupScripts: !Ref S3KeyLocationForDBMailSetupScripts,
+                  S3KeyLocationForSSRSSetupFile: !Ref S3KeyLocationForSSRSSetupFile,
+                  SSRSSetupFileNameOnS3: !Ref SSRSSetupFileNameOnS3,
+                  S3KeyLocationForSSMSSetupFile: !Ref S3KeyLocationForSSMSSetupFile,
+                  SSMSSetupFileNameOnS3: !Ref SSMSSetupFileNameOnS3,
+                  SQLInstanceNumber: !Ref SQLInstanceNumber,
+                  SQLInstanceIdPrefix: !Ref SQLInstanceIdPrefix,
+                  DistributedReplayControllerName: !Ref DistributedReplayControllerName,
+                  InstallDatabaseEngine: !Ref InstallDatabaseEngine,
+                  InstallAnalysisService: !Ref InstallAnalysisService,
+                  InstallReportingServices: !Ref InstallReportingServices,
+                  InstallSQLServerManagementStudio: !Ref InstallSQLServerManagementStudio,
+                }
+      DocumentType: Command
+      Name: !Join ["-", ["DL", "Command", !GetAtt EC2NamingInvocation.name]]

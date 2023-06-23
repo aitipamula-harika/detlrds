@@ -1,0 +1,45 @@
+---
+schemaVersion: "2.2"
+description: "Command Document Example JSON Template"
+mainSteps:
+- action: "aws:runPowerShellScript"
+  name: "RunScript"
+  inputs:
+    runCommand:
+    - |
+            cd C:/temp/
+            md windows-pkgs
+            cd .\windows-pkgs
+            # Copy installers from S3 bucket to local folder.
+            aws s3 sync s3://delta-postcfg-artifacts-test/database/tools/ . 
+            # The following lines will get the newest file in the sub directories with the assumption the newest file is the newest versoin of the installer.
+            $pgAdmin_FilePath = dir -r PgAdmin| Get-ChildItem -Recurse -File | sort LastWritetime | select-object fullname -Last 1
+            $SSMS_FilePath = dir -r SQLServerManagementStudio | Get-ChildItem -Recurse -File | sort LastWritetime | select-object fullname -Last 1
+            # The following two variables are .zip file path. 
+            $SchemaTool_FilePath = dir -r SchemaConversionTool | Get-ChildItem -Recurse -File | sort LastWritetime | select-object fullname -Last 1
+            $SchemaTool_FilePath.FullName
+            $SQLDeveloperTool_FilePath = dir -r SQLDeveloper | Get-ChildItem -Recurse -File | sort LastWritetime | select-object fullname -Last 1
+            $SQLDeveloperTool_FilePath.FullName
+            
+            #Start installation for two of the .exe files
+            Start-Process -Wait -FilePath $pgAdmin_FilePath.FullName -Argument "/silent" -PassThru
+            Start-Process -Wait -FilePath $SSMS_FilePath.FullName -Argument "/silent" -PassThru
+            
+            #unzip Schema tool .zip file to c:\DBA_Tools folder.
+            cd "c:\temp\windows-pkgs\"
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            md "c:\DBA_Tools\SchemaConversionTool\"
+            $SchemaTool_UnzipDestination = "c:\DBA_Tools\SchemaConversionTool\"
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($SchemaTool_FilePath.FullName, $SchemaTool_UnzipDestination)
+            cd "c:\DBA_Tools\SchemaConversionTool\" 
+            .\\"AWS Schema Conversion Tool-1.0.650.msi" /quiet
+
+            #unzip SQLDeveloper tool .zip file to c:\DBA_Tools folder.
+            cd "c:\temp\windows-pkgs\"
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            md "c:\DBA_Tools\SQLDeveloperTool\"
+            $SQLDeveloper_UnzipDestination = "c:\DBA_Tools\SQLDeveloperTool\"
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($SQLDeveloperTool_FilePath.FullName, $SQLDeveloper_UnzipDestination)
+            #Start-Process -Wait -FilePath .\SQLDeveloper\sqldeveloper\sqldeveloper.exe -ArgumentList '/S','/v','/qn' -PassThru
+            cd ..
+            Remove-Item -Force -Recurse -Path "c:\temp\windows-pkgs"

@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "AWS CloudFormation Template for creating a Route 53 hosted zone and Sailpoint group for RDS instances."
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'Sailpoint parameters'
+      Parameters:
+      - Environment
+      - Blockcode
+      - DBNumber
+      - RDSCustomInstanceAlias
+      - dataClassificationParameter
+      - AdminPrimaryOwner
+      - AdminSecondaryOwners
+      - gdprIndicator
+      - pciIndicator
+      - soxIndicator
+      - cuiIndicator
+      - piiIndicator
+
+Parameters:
+  Blockcode:
+    Type: String
+    Description: Enter the 10 character Blockcode (in lowercase) for this RDS instance
+    AllowedPattern: '^[a-z0-9]{10}$'
+    ConstraintDescription: The Blockcode must entered in lowercase and must be 10 characters long
+  DBNumber:
+    Type: String
+    Description: Enter the 2 digit database number for this RDS instance
+    Default: "01"
+    AllowedPattern: ^[0-9]{2}$
+    ConstraintDescription: The DBNumber must be 2 characters long
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+  RDSCustomInstanceAlias:
+    Type: String
+    Description: RDS custom db instance alias.
+    Default: ''
+  piiIndicator:
+    Type: String
+    Description: Refers to any personal identifiable information related to an individual.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  pciIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  soxIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  cuiIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  gdprIndicator:
+    Type: String
+    Description: Refers to the general data protection regulation category of information
+    AllowedValues: ['true', 'false']
+    Default: 'false' 
+  AdminPrimaryOwner:
+    Type: String
+    Description: Primary owner user id (6 digit) that should be set on the Admin AD group which sailpoint creates
+  AdminSecondaryOwners:
+    Type: String
+    Description: Comma delimited list of secondary owner user ids (6 digit) that should be set on the Admin AD group which sailpoint creates
+  dataClassificationParameter:
+    Description: The value for the dataClassificationParameter tag.
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: internal
+
+Conditions:
+  isDevelopmentAccount: !Equals
+    - !Ref Environment
+    - development
+Mappings:    
+  DataClassificationMap:
+      "internal":
+        "SailpointDataClassification": "None"
+      "public":
+        "SailpointDataClassification": "None"
+      "confidential":
+        "SailpointDataClassification": "Confidential"
+      "restricted":
+        "SailpointDataClassification": "Restricted"
+
+Resources:
+  RouteRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: '{{resolve:ssm:/delta/r53/hostedzoneid:1}}'
+      Name: !Sub
+        - "sql-${Blockcode}-${DBNumber}.${hostedzonedomain}"
+        - {
+          hostedzonedomain: '{{resolve:ssm:/delta/r53/hostedzonename:1}}'
+          }
+      Type: CNAME
+      TTL: '300'
+      ResourceRecords:
+        - !If
+          - isDevelopmentAccount
+          - !Ref RDSCustomInstanceAlias
+          - !Join ['.', ['listener', !Ref RDSCustomInstanceAlias]]
+
+  RDSSailpointInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:sailpoint-group-creation
+      hostName: !Ref RouteRecordSet
+      primaryOwner: !Ref AdminPrimaryOwner
+      secondaryOwners: !Ref AdminSecondaryOwners
+      environment: !Ref Environment
+      dataClassification: !FindInMap [DataClassificationMap, !Ref dataClassificationParameter, "SailpointDataClassification"]
+      isPII: !Ref piiIndicator
+      isPCI: !Ref pciIndicator
+      isSOX: !Ref soxIndicator
+      isCUI: !Ref cuiIndicator
+      isGDPR: !Ref gdprIndicator

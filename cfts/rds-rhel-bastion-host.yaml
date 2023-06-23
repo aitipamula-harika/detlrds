@@ -1,0 +1,499 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating an RHEL Base DBA Bastion Host.
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'General Parameters'
+      Parameters:
+      - InstanceType
+      - OSVersion
+      - EC2IAMInstanceProfileName
+      - ServerType
+      - DomainEnv
+      - dbEngine
+      - SubnetSelection
+    - Label:
+        default: 'Application Parameters'
+      Parameters:
+      - ProjectName
+      - blockCode
+      - costCenter
+      - iServerID
+      - supportGroup
+      - appSupportEmail
+      - appCriticalityTier
+      - dataClassification
+      - compliance
+    - Label:
+        default: 'Monitoring Profile Parameter'
+      Parameters:
+      - EntMonitoringProfile
+    - Label:
+        default: 'Patching Parameters'
+      Parameters:
+      - OSPatchDay
+      - OSPatchHour
+      - InfraAppPatchDay
+      - InfraAppPatchHour
+      - OOBPatchGroup
+    - Label:
+        default: 'Filesystem Sizes'
+      Parameters:
+      - AppsVolumeSize
+      - ProductsVolumeSize
+      - LogsVolumeSize
+    - Label:
+        default: 'Sailpoint Integration Parameters'
+      Parameters:
+      - primaryOwner
+      - secondaryOwners
+      - Environment
+      - isPCI
+      - isPII
+      - isPrivileged
+      - isCUI
+      - isSOX
+      - isGDPR
+
+Parameters:
+
+  InstanceType:
+    Type: String
+    Description: Select the instance type you would like to use in your launch templates
+    AllowedValues: ['t3.large', 't3.medium', 't3.small', 't2.large', 't2.medium', 't2.small', 'c4.2xlarge']
+    Default: t3.small
+
+  OSVersion:
+    Type: String
+    Description: Select the RHEL OS Version you would like to use
+    AllowedValues: ['rhel-7x', 'rhel-8x']
+    Default: rhel-8x
+
+  blockCode:
+    Type: String
+    Description: Enter the blockCode for the project
+    Default: ISMISSDBAS
+
+  costCenter:
+    Type: String
+    Description: Enter the Cost Center for the project
+    Default: C8110ATG
+
+  iServerID:
+    Type: String
+    Description: Enter the iServerID for the project
+    Default: D1234567
+
+  supportGroup:
+    Type: String
+    Description: Enter a ServiceNow Event Management Incident Group details
+    Default: "InfraHostingOps_PostgresDbSup"
+
+  appSupportEmail:
+    Type: String
+    Description: Enter a tag value for application support group email ID
+    Default: "ITxPostgresqlSupport@delta.com"
+
+  appCriticalityTier:
+    Type: String
+    AllowedValues :
+      - MV
+      - MC
+      - BC
+      - BE
+      - B
+    Description: Please select the Application Criticality Tier from the given value
+    Default: "B"
+
+  dataClassification:
+    Type: String
+    AllowedValues : 
+      - public
+      - internal
+      - confidential
+      - restricted
+    Description: Enter a tag value for data classification
+    Default: "internal"
+
+  compliance:
+    Type: String
+    AllowedValues: ['pci','pii','hippa','sox','gdpr','cui','gov contract','none']
+    Description: Enter a tag value for Compliance
+    Default: "none"
+
+  ProjectName:
+    Type: String
+    Description: Enter the name for the project
+    Default: DBABastionHost
+
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+
+  EC2IAMInstanceProfileName:
+    Type: String
+    Description: The Name of the IAM Instance Profile that should be used when creating the EC2 Launch Template
+    Default: DeltaMigrationEC2Role
+
+  ServerType:
+    Type: String
+    Default: application
+    AllowedValues:
+      - application
+      - database
+      - dc
+      - citrix
+      - web
+
+  dbEngine:
+    Type: String
+    AllowedValues: ['oracle-19','mysql-8','postgres-13','oracle-19,mysql-8,postgres-13,db2-11','none']
+    Description: Please provide the Database engine name and version details
+    Default: "oracle-19,mysql-8,postgres-13,db2-11"
+
+  DomainEnv:
+    Type: String
+    Default: Delta.RL.Delta.com
+    AllowedValues:
+      - Delta.RL.Delta.com
+
+  EntMonitoringProfile:
+    Type: String
+    Default: BaseOS
+    AllowedValues:
+      - NoMonitoring
+      - BaseOS
+      - BaseOSInfraApp
+      - BaseOSAPM
+      - BaseOSAPMInfraApp
+      - BaseOSLoggingAnalytics
+      - BaseOSAPMLoggingAnalytics
+      - BaseOSAPMInfraAppLoggingAnalytics
+      - BaseOSLogging
+      - BaseOSCustom
+
+  OSPatchDay:
+    Type: String
+    Description: The day that you would like the OS on this instance patched on.  Note that non-prd instances will get patched during the 1st week of the 14-day patch cycle whereas prd instances will get patched in the 2nd week of the 14-day patch cycle.
+    AllowedValues: ['tue','wed','thu','fri']
+    Default: "tue"
+  
+  OSPatchHour:
+    Type: String
+    Description: The hour (2 digit) that you would like the OS for this instance patched on.
+    AllowedPattern: ^[0-9]{2}$
+    Default: "01"
+
+  InfraAppPatchDay:
+    Type: String
+    Description: The day that you would like WAS patched on.  Note that non-prd instances will get patched during the 1st week of the 14-day patch cycle whereas prd instances will get patched in the 2nd week of the 14-day patch cycle.
+    AllowedValues: ['tue','wed','thu','fri']
+    Default: "tue"
+
+  InfraAppPatchHour:
+    Type: String
+    Description: The hour (2 digit) that you would like WAS patched on.
+    AllowedPattern: ^[0-9]{2}$
+    Default: 22
+
+  OOBPatchGroup:
+    Type: String
+    Description: The Out of Band (OOB) patch schedule you would like to use for this instance.  Note that this only applies to production instances.
+    AllowedValues: ['dev-day-1-1800', 'si-day-2-1800','prd-day-3-2000','prd-day-4-2200','prd-day-5-2400','prd-day-6-0200','prd-day-7-0400']
+    Default: "dev-day-1-1800"
+
+  AppsVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the apps volume
+    Default: 10
+
+  ProductsVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the products volume
+    Default: 30
+
+  LogsVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the logs volume
+    Default: 10
+
+  SubnetSelection:
+    Type: String
+    Description: Please select a subnect in which to create your instance
+    AllowedValues: ['webappsubnet1aid', 'webappsubnet1bid','webappsubnet1cid','webappsubnet2aid', 'webappsubnet2bid','webappsubnet2cid','privatesubnet1aid','privatesubnet2aid']
+    Default: "webappsubnet1aid"
+
+  primaryOwner:
+    Type: String
+    Description: Primary owner user id (6 digit) that should be set on the sailpoint group
+    Default: "896944"
+
+  secondaryOwners:
+    Type: String
+    Description: Comma delimited list of secondary owner user ids (6 digit) that should be set on the sailpoint group
+
+  isPII:
+    Type: String
+    Description: Flag indicating whether or not PII is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  isPCI:
+    Type: String
+    Description: Flag indicating whether or not PCI is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  isSOX:
+    Type: String
+    Description: Flag indicating whether or not SOX is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  isPrivileged:
+    Type: String
+    Description: Flag indicating whether or not the group should be marked as privledged
+    AllowedValues: ['true']
+    Default: 'true'
+
+  isCUI:
+    Type: String
+    Description: Flag indicating whether or not CUI is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  isGDPR:
+    Type: String
+    Description: Flag indicating whether or not GDPR is enabled
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  PostConfigType:
+    Type: String
+    AllowedValues: ['', '-TEST']
+    Default: ''
+
+Mappings:
+  DataClassificationMap:
+    "internal":
+      "SailpointDataClassification": "None"
+    "public":
+      "SailpointDataClassification": "None"
+    "confidential":
+      "SailpointDataClassification": "Confidential"
+    "restricted":
+      "SailpointDataClassification": "Restricted"
+  EnvironmentMap:
+    sandbox:
+      "singleAbbreviation": "l"
+      "abbreviation": "lab"
+      "patchabbreviation": "lab"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "dev-day-1-1800"
+    development:
+      "singleAbbreviation": "d"
+      "abbreviation": "dvl"
+      "patchabbreviation": "dev"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "dev-day-1-1800"
+    systems-integration:
+      "singleAbbreviation": "i"
+      "abbreviation": "int"
+      "patchabbreviation": "si"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "si-day-2-1800"
+    production:
+      "singleAbbreviation": "p"
+      "abbreviation": "prd"
+      "patchabbreviation": "prd"
+      "mainCategory": "prd"
+      "oobPatchGroup": "get-from-parameters"
+    aws-central-services:
+      "singleAbbreviation": "p"
+      "abbreviation": "prd"
+      "mainCategory": "prd"
+      "patchabbreviation": "prd"
+      "oobPatchGroup": "get-from-parameters"
+      
+Conditions:
+  IsProductionAccount: !Equals
+    - !Ref Environment
+    - 'production'
+
+Resources:
+
+  BaseLaunchTemplate:
+    DependsOn: EC2SailpointInvocation
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${ProjectName}-base-${OSVersion}
+      LaunchTemplateData:
+        ImageId: !Sub '{{resolve:ssm:/delta/ec2/ami/${OSVersion}/us-east-1/latest:1}}'
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Name: !Ref EC2IAMInstanceProfileName
+        BlockDeviceMappings:
+          - Ebs:
+              VolumeSize: !Ref AppsVolumeSize
+              VolumeType: gp2
+              DeleteOnTermination: true
+              Encrypted: true
+            DeviceName: /dev/sdc
+          - Ebs:
+              VolumeSize: !Ref ProductsVolumeSize
+              VolumeType: gp2
+              DeleteOnTermination: true
+              Encrypted: true
+            DeviceName: /dev/sdd
+          - Ebs:
+              VolumeSize: !Ref LogsVolumeSize
+              VolumeType: gp2
+              DeleteOnTermination: true
+              Encrypted: true
+            DeviceName: /dev/sde
+          #
+          # Uncomment the below EBS section if custom filesystem is needed for COTS application.
+          #    Note: DeviceName will be needed in UserData section below.
+          #
+          # - Ebs:
+          #     VolumeSize: XX (where XX is custom size in GB)
+          #     VolumeType: gp2
+          #     DeleteOnTermination: true
+          #     Encrypted: true
+          #   DeviceName: /dev/sdf
+
+
+
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            SubnetId: !Sub '{{resolve:ssm:/delta/vpc/${SubnetSelection}:1}}'
+            Groups:
+              - '{{resolve:ssm:/delta/ec2/infrastructure-sg-id:1}}'
+
+        TagSpecifications:
+          - ResourceType: volume
+            Tags:
+              - Key: costCenter
+                Value: !Ref costCenter
+              - Key: iServerID
+                Value: !Ref iServerID
+              - Key: blockCode
+                Value: !Ref blockCode
+              - Key: supportGroup
+                Value: !Ref supportGroup
+              - Key: appCriticalityTier
+                Value: !Ref appCriticalityTier
+              - Key: dataClassification
+                Value: !Ref dataClassification
+              - Key: compliance
+                Value: !Ref compliance
+
+          - ResourceType: instance
+            Tags:
+              - Key: costCenter
+                Value: !Ref costCenter
+              - Key: iServerID
+                Value: !Ref iServerID
+              - Key: appCriticalityTier
+                Value: !Ref appCriticalityTier
+              - Key: dataClassification
+                Value: !Ref dataClassification
+              - Key: compliance
+                Value: !Ref compliance
+              - Key: supportGroup
+                Value: !Ref supportGroup
+              - Key: appSupportEmail
+                Value: !Ref appSupportEmail
+              - Key: dbEngine
+                Value: !Ref dbEngine
+              - Key: PostConfig
+                Value: !Sub RHEL-BASE${PostConfigType}
+              - Key: OSVersion
+                Value: !Ref OSVersion
+              - Key: EntMonitoringProfile
+                Value: !Ref EntMonitoringProfile
+              - Key: Name
+                Value: !GetAtt EC2NamingInvocation.name
+              - Key: Alias
+                Value: !Sub
+                  - ${prefix}.${accountname}.${suffix}
+                  - {
+                      prefix: !GetAtt EC2NamingInvocation.name,
+                      accountname: '{{resolve:ssm:/org/member/account_name:1}}',
+                      suffix: aws.delta.com
+                    }
+              - Key: Environment
+                Value: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+              - Key: blockCode
+                Value: !Ref blockCode
+              - Key: OSPatchGroup
+                Value: !Sub
+                  - os-rhel-${OSPatchEnvironment}-${OSPatchWeek}-${OSPatchDay}-${OSPatchHour}00
+                  - {
+                    OSPatchEnvironment: !FindInMap [EnvironmentMap, !Ref Environment, "patchabbreviation"],
+                    OSPatchWeek: !If [IsProductionAccount, 'wk2', 'wk1']
+                    }
+              - Key: InfraAppPatchGroup
+                Value: !Sub
+                  - product-rhel-${InfraAppPatchEnvironment}-${InfraAppPatchWeek}-${InfraAppPatchDay}-${InfraAppPatchHour}00
+                  - {
+                    InfraAppPatchEnvironment: !FindInMap [EnvironmentMap, !Ref Environment, "patchabbreviation"],
+                    InfraAppPatchWeek: !If [IsProductionAccount, 'wk2', 'wk1']
+                    }
+              - Key: OOBPatchGroup
+                Value: !If
+                  - IsProductionAccount
+                  - !Ref OOBPatchGroup
+                  - !FindInMap [EnvironmentMap, !Ref Environment, "oobPatchGroup"]
+
+
+  BaseRhelInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId:  !Ref BaseLaunchTemplate
+        Version: "1"
+      #
+      # Uncomment the below UserData section if custom filesystem is needed for COTS application.
+      #    Note: the DeviceName (/dev/sdf in example below) comes from Ebs section of launch template above.
+      #
+      # UserData:
+      #   Fn::Base64: |
+      #     #!/bin/bash -xe
+      #     /usr/local/bin/delta-add-new-ebs-filesystem.sh /dev/sdf /custom-filesystem
+
+
+  EC2NamingInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !If [IsProductionAccount, arn:aws:sns:us-east-1:094835659498:name_generator_topic, arn:aws:sns:us-east-1:148569397242:name_generator_topic]
+      OSVersion: !Ref OSVersion
+      Domain: !Ref DomainEnv
+      Environment: !FindInMap [EnvironmentMap, !Ref Environment, "mainCategory"]
+      Region: !Ref "AWS::Region"
+      ServerType: !Ref ServerType
+
+  EC2SailpointInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:sailpoint-group-creation
+      hostName: !GetAtt EC2NamingInvocation.name
+      domainName: 'Corp AD'
+      primaryOwner: !Ref primaryOwner
+      secondaryOwners: !Ref secondaryOwners
+      environment: !Ref Environment
+      dataClassification: !FindInMap [DataClassificationMap, !Ref dataClassification, "SailpointDataClassification"]
+      isPII: !Ref isPII
+      isPCI: !Ref isPCI
+      isSOX: !Ref isSOX
+      isPrivileged: !Ref isPrivileged
+      isCUI: !Ref isCUI
+      isGDPR: !Ref isGDPR

@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating lambda function to turn on/off monitoring
+
+Parameters:
+  blockCode:
+    Type: String
+    Description: Enter the 10 character Blockcode (in uppercase ) for this RDS instance
+    AllowedPattern: '^[a-z0-9]{10}$'
+    ConstraintDescription: The Blockcode must entered in uppercase and must be 10 characters long
+  s3Bucket:
+    Type: String
+    Description: S3 bucket where the code for the lambda function is stored.
+    Default: delta-postcfg-artifacts
+  s3Object:
+    Type: String
+    Description: Name of the S3 object that the code for the rds alert filtering lambda is stored.
+    Default: database/lambdas/rds-monitoring-onoff-events-alarms.zip
+  costCenterParameter:
+    Description: The value for the costCenter tag .
+    Type: String
+    Default: C8110ATG
+  iServerIDParameter:
+    Description: The value for the iServerID
+    Type: String
+    Default: D012345
+  dataClassificationParameter:
+    Description: The value for the dataClassificationParameter tag.
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: internal
+  supportGroupParameter:
+    Description: The value for the supportGroup.
+    Type: String
+    Default: InfraHostingOps_PostgresDbSup
+  assignmentGroupParameter:
+    Description: The value for the assignmentGroup
+    Type: String
+    Default: InfraHostingOps_PostgresDbSup
+  appCriticalityTierParameter:
+    Type: String
+    Description: The value for the appCritiality tag
+    AllowedValues: ['MV', 'MC', 'BC', 'BE', 'B']
+    Default: B
+
+
+Resources:
+
+  # THE FOLLOWING RESOURCE CREATES AN IAM ROLE THAT IS USED IN THE LAMBDA FUNCTION THAT FILTERS ALL RDS MESSAGES.
+  LambdaRoleArnForRDSMonOnoff:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'delegate-admin-lambda-rds-monitoring-onoff'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: rds:*
+                Resource: '*'
+              - Effect: Allow
+                Action: cloudwatch:DescribeAlarms
+                Resource: '*'
+              - Effect: Allow
+                Action: cloudwatch:DisableAlarmActions
+                Resource: '*'
+              - Effect: Allow
+                Action: cloudwatch:EnableAlarmActions 
+                Resource: '*'
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: '*'    
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      PermissionsBoundary:
+        Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+
+
+  # THE FOLLOWING RESOURCE CREATES A LAMBDA FUNCTION THAT WILL RECEIVE AN IMCOMING MESSAGE FROM SNS
+  # AND THEN FORWARD TO A DIFFERENT SNS TOPIC DEPENDING ON THE RELATED DB ENGINE
+  RDSMonOnoffLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: rds-monitoring-onoff
+      Handler: rds-monitoring-onoff-events-alarms.lambda_handler
+      Runtime: python3.8
+      Description: 'This function enables or disables monitoring for any RDS instance'
+      MemorySize: 128
+      Timeout: 300
+      Role: !GetAtt LambdaRoleArnForRDSMonOnoff.Arn
+      Code:
+        S3Bucket: !Ref s3Bucket
+        S3Key: !Ref s3Object
+      Tags:
+        - Key: assignmentGroup
+          Value: !Ref assignmentGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityTierParameter
+        - Key: blockCode
+          Value: !Ref blockCode
+  

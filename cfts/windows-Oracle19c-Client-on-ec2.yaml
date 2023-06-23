@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template to create SSM Document to install Oracle19c Client on Windows EC2 Instance
+Resources:
+    InstallCassRKSSMDocument:
+        Type: AWS::SSM::Document
+        Properties:
+            DocumentType: Command
+            Name: 'DL-Oracle19c-Client-Install'
+            Content :
+              schemaVersion: "2.2"
+              description: "Command Document to install Oracle 19c client on Windows"
+              parameters:
+                ClientLocationS3Bucket:
+                  default: "delta-rds-artifacts-us-east-1"
+                  description: "Bucket where Oracle 19c client install files are located"
+                  type: "String"
+                OracleRSPLocationS3KeyPrefix:
+                  type: String
+                  description: Folder location in S3 bucket where Oracle 19c client rsp file is located
+                  default: "database/software-repository/oracle/Runtime_Client_19c_Win_x86-64/install_runtime_client.rsp"
+                Oraclep33810130MSWINS3Prefix:
+                  type: String
+                  description: Folder location in S3 bucket where Oracle client p33810130_190000_MSWIN zip file is located
+                  default: "database/software-repository/oracle/Runtime_Client_19c_Win_x86-64/jdk_patch_190000_MSWIN-x86-64.zip"
+                Oraclep33829175MSWINS3KeyPrefix:
+                  type: String
+                  description: Folder location in S3 bucket where Oracle p33829175_190000_MSWIN zip file is located
+                  default: "database/software-repository/oracle/Runtime_Client_19c_Win_x86-64/dbru_patch_190000_MSWIN-x86-64.zip"
+                Oraclep6880880MSWINS3KeyPrefix:
+                  type: String
+                  description: Folder location in S3 bucket where Oracle p6880880_190000_MSWIN zip file is located
+                  default: "database/software-repository/oracle/Runtime_Client_19c_Win_x86-64/p6880880_190000_MSWIN-x86-64.zip"
+                OracleWINDOWSX64193000clientS3KeyPrefix:
+                  type: String
+                  description: Folder location in S3 bucket where Oracle WINDOWS.X64_193000_client zip file is located
+                  default: "database/software-repository/oracle/Runtime_Client_19c_Win_x86-64/WINDOWS.X64_193000_client.zip"
+                OracleUnzipEXES3KeyPrefix:
+                  type: String
+                  description: Folder location in S3 bucket where Oracle unzip.exe file is located
+                  default: "database/software-repository/oracle/Runtime_Client_19c_Win_x86-64/unzip.exe"
+              mainSteps:
+              - action: "aws:runPowerShellScript"
+                name: "installoracle19c"
+                inputs:
+                  runCommand:
+                  - |
+                      Write-Host "start"
+                      
+                      $WorkDirectory = "E:\temp\oracle_client"                 
+                      If(!(Test-Path -Path "$WorkDirectory"))
+                        {
+                          Write-Host "create dir $WorkDirectory"
+                          md $WorkDirectory
+                        } 
+                      # md -p $WorkDirectory
+                      Write-Host "Work Directory set to E:\temp\oracle_client. This will be used to download softwares."
+                      # Set Oracle home directory.
+                      If (!(test-path "E:\products\database\oracle\19_x86-64\runtime_client_1"))
+                        {
+                        md "E:\products\database\oracle\19_x86-64\runtime_client_1"
+                        }
+                      # md -p "E:\products\database\oracle\19_x86-64\runtime_client_1"
+                      $ORACLE_HOME="E:\products\database\oracle\19_x86-64\runtime_client_1"
+                      
+                      Write-Host "Oracle Home set to E:\products\database\oracle\19_x86-64\runtime_client_1"
+
+                      #Download Oracle 19c client files from S3 bucket to working directory.
+
+                      Write-Host "Downloading Oracle 19c client install files from {{ClientLocationS3Bucket}} bucket"
+                      Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{OracleRSPLocationS3KeyPrefix}}" -LocalFile $WorkDirectory/install_runtime_client.rsp
+                      Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{Oraclep33810130MSWINS3Prefix}}" -LocalFile $WorkDirectory/jdk_patch_190000_MSWIN-x86-64.zip
+                      Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{Oraclep33829175MSWINS3KeyPrefix}}" -LocalFile $WorkDirectory/dbru_patch_190000_MSWIN-x86-64.zip
+                      Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{Oraclep6880880MSWINS3KeyPrefix}}" -LocalFile $ORACLE_HOME/p6880880_190000_MSWIN-x86-64.zip
+                      Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{OracleWINDOWSX64193000clientS3KeyPrefix}}" -LocalFile $WorkDirectory/WINDOWS.X64_193000_client.zip
+                      Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{OracleUnzipEXES3KeyPrefix}}" -LocalFile $WorkDirectory/unzip.exe
+
+                      dir $WorkDirectory
+
+                      #Unzip oracle 19c client zip archive
+                      cd $WorkDirectory
+                      Write-Host "Unzipping Oracle 19c client install files."
+                      tar -xf WINDOWS.X64_193000_client.zip
+                      tar -xf dbru_patch_190000_MSWIN-x86-64.zip
+                      tar -xf jdk_patch_190000_MSWIN-x86-64.zip
+
+                      Write-host "unzip the files"
+                      dir $WorkDirectory
+
+                      # Install Oracle 19c Client (silent)
+
+                      Write-Host "Installing Oracle 19c client on host."
+                      cd $WorkDirectory\client
+                      .\setup.exe -silent -responseFile $WorkDirectory\install_runtime_client.rsp
+                      sleep(180)
+                      net stop OracleRemExecServiceV2
+                      sc.exe config "OracleRemExecServiceV2" start=disabled
+                      sleep(120)
+
+              - action: "aws:runPowerShellScript"
+                name: "applyOpatch"
+                inputs:
+                  runCommand:
+                  - |
+                      #Patching
+                      net stop OracleOraClient19Home1TNSListener
+                      sc.exe config "OracleOraClient19Home1TNSListener" start=disabled
+                      sleep(30)
+                      Write-Host "Applying patches"
+                      $WorkDirectory = "E:\temp\oracle_client"
+                      $ORACLE_HOME="E:\products\database\oracle\19_x86-64\runtime_client_1"
+                      cd $ORACLE_HOME
+                      tar -xf p6880880_190000_MSWIN-x86-64.zip
+                      
+                      Write-Host "remove p6880880.zip"
+                      rm $ORACLE_HOME\p6880880_190000_MSWIN-x86-64.zip
+                      
+                      Write-Host "apply patch1"
+                      OPatch\opatch apply -silent -force -oh $ORACLE_HOME $WorkDirectory\33829175
+                      Write-Host "apply patch2"
+                      OPatch\opatch apply -silent -force -oh $ORACLE_HOME $WorkDirectory\33810130
+                      OPatch\opatch lsinventory -oh $ORACLE_HOME > $ORACLE_HOME\dal_oracle_client_patchlevel.txt

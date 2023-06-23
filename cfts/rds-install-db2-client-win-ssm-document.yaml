@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating SSM command document that will install DB2 client on Windows EC2 instances.
+Parameters:
+  dlMigrateAccountIDs:
+    Description: What is the parmeter in the parameter store with the list of DL EC2 accounts
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/accounts/dl-ec2-accounts
+  9eMigrateAccountIDs:
+    Description: What is the parmeter in the parameter store with the list of 9E EC2 accounts
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/accounts/9e-ec2-accounts
+  vsMigrateAccountIDs:
+    Description: What is the parmeter in the parameter store with the list of VS EC2 accounts
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/accounts/vs-ec2-accounts
+
+Resources:
+  RDSDB2ClientInstallSSMDoc:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Name: 'DL-windows-db2-client-install'
+      Content :
+        schemaVersion: "2.2"
+        description: "Command Document to install DB2 client on EC2 Windows servers."
+        parameters:
+          ClientLocationS3Bucket:
+            default: "delta-rds-artifacts-us-east-1"
+            description: "Bucket where DB2 client install files are located"
+            type: "String"
+          GSK8Crypt64LocationS3KeyPrefix:
+            default: "database/clients/db2udb/11/windows/fullclient/GSKIT/8.0.55.26/64/gsk8crypt64.exe"
+            description: "Folder location in S3 bucket where GSKIT gsk8crypt64.exe file is located"
+            type: "String"
+          DB2RSPLocationS3KeyPrefix:
+            default: "database/clients/db2udb/11/windows/fullclient/db2client_install.rsp"
+            description: "Folder location in S3 bucket where DB2 client rsp file is located"
+            type: "String"
+          DB2ZipLocationS3KeyPrefix:
+            default: "database/clients/db2udb/11/windows/fullclient/CLIENT_ntx64.zip"
+            description: "Folder location in S3 bucket where DB2 client zip file is located"
+            type: "String"
+          GSK8SSL64LocationS3KeyPrefix:
+            default: "database/clients/db2udb/11/windows/fullclient/GSKIT/8.0.55.26/64/gsk8ssl64.exe"
+            description: "Folder location in S3 bucket where GSKIT gsk8ssl64.exe file is located"
+            type: "String"
+        mainSteps:
+        - inputs:
+            runCommand:
+            - |
+                $WorkDirectory = "E:\IBM\Temp"
+                $DB2DumpDirectory = "E:\IBM\DB2DUMP"
+                $DB2ClientImagePath = "E:\IBM\Temp\Client\image"
+                $GSKITInstallPath = "E:\IBM\Temp\GSKIT"
+                $DB2RspFilePath = "E:\IBM\Temp\db2client_install.rsp"
+                $DB2LogFilePath = "E:\IBM\DB2LOG"
+
+                # Create working and dump directories.
+                md $WorkDirectory
+                md $DB2DumpDirectory
+                md $DB2LogFilePath
+                md $GSKITInstallPath
+
+                #Download DB2 client files from S3 bucket to working directory.
+                Write-Host "Downloading DB2 client install files from {{ClientLocationS3Bucket}} bucket"
+                Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{DB2ZipLocationS3KeyPrefix}}" -LocalFile $WorkDirectory/CLIENT_ntx64.zip
+                Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{DB2RSPLocationS3KeyPrefix}}" -LocalFile $WorkDirectory/db2client_install.rsp
+
+                #Unzip db2 client zip archive
+                cd $WorkDirectory
+                tar -xf CLIENT_ntx64.zip
+
+                # Install GSKIT 64
+
+                # copy GSKIT Executables from s3 bucket
+                Write-Host "Downloading GSKIT Executables from {{ClientLocationS3Bucket}} bucket"
+                Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{GSK8Crypt64LocationS3KeyPrefix}}" -LocalFile $GSKITInstallPath/gsk8crypt64.exe
+                Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{GSK8SSL64LocationS3KeyPrefix}}" -LocalFile $GSKITInstallPath/gsk8ssl64.exe
+
+                # Install GSKIT components (silent)
+                Write-Host "Installing GSKIT components"
+                cd $GSKITInstallPath
+                Start-Process -Wait -FilePath gsk8crypt64.exe -Argument "/silent" -PassThru
+                Start-Process -Wait -FilePath gsk8ssl64.exe -Argument "/silent" -PassThru
+
+                $logfilename = Get-ChildItem $DB2LogFilePath\*.log | select -expand fullname
+                $logfilename -match "db2client_install.log"
+                If ($logfilename -eq 'False') {
+                  New -Item -Path '$DB2LogFilePath\db2client_install.log' -ItemType File
+                }
+
+                # Install Db2 Client (silent)
+                Write-Host "Installing DB2 client on host."
+                cd $DB2ClientImagePath
+                .\setup.exe /u $DB2RspFilePath /l $DB2LogFilePath\db2client_install.log
+
+          name: "InstallDB2client"
+          action: "aws:runPowerShellScript"
+  InvokeShareSSMDocLambdaFunction:
+    Type: "Custom::InvokeLambdaFunction"
+    Properties:
+      ServiceToken: '{{resolve:ssm:/delta/lambda/distribute-ssm-document-lambda:1}}'
+      SSMDocumentNames:
+        - !Ref RDSDB2ClientInstallSSMDoc
+      ManageAccountIDs: !Split
+              - ','
+              - !Join ["," , [ !Ref dlMigrateAccountIDs, !Ref 9eMigrateAccountIDs, !Ref vsMigrateAccountIDs ] ]

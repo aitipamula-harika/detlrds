@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating SSM command document that will install Oracle client on Windows EC2 instances.
+Parameters:
+  dlMigrateAccountIDs:
+    Description: What is the parmeter in the parameter store with the list of DL EC2 accounts
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/accounts/dl-ec2-accounts
+  9eMigrateAccountIDs:
+    Description: What is the parmeter in the parameter store with the list of 9E EC2 accounts
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/accounts/9e-ec2-accounts
+  vsMigrateAccountIDs:
+    Description: What is the parmeter in the parameter store with the list of VS EC2 accounts
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/accounts/vs-ec2-accounts
+Resources:
+  RDSOracleClientInstallSSMDoc:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Name: 'DL-windows-oracle-19c-client-install'
+      Content :
+        schemaVersion: "2.2"
+        description: "Command Document to install Oracle 19c client on EC2 Windows servers."
+        parameters:
+          ClientLocationS3Bucket:
+            default: "dal-database-artifacts"
+            description: "Bucket where Oracle 19c client install files are located"
+            type: "String"
+          OracleRSPLocationS3KeyPrefix:
+            type: String
+            description: Folder location in S3 bucket where Oracle 19c client rsp file is located
+            default: "Oracle/Runtime_Client_19c_Win_x86-64/install_runtime_client.rsp"
+          Oraclep33810130MSWINS3Prefix:
+            type: String
+            description: Folder location in S3 bucket where Oracle client p33810130_190000_MSWIN zip file is located
+            default: "Oracle/Runtime_Client_19c_Win_x86-64/p33810130_190000_MSWIN-x86-64.zip"
+          Oraclep33829175MSWINS3KeyPrefix:
+            type: String
+            description: Folder location in S3 bucket where Oracle p33829175_190000_MSWIN zip file is located
+            default: "Oracle/Runtime_Client_19c_Win_x86-64/p33829175_190000_MSWIN-x86-64.zip"
+          Oraclep6880880MSWINS3KeyPrefix:
+            type: String
+            description: Folder location in S3 bucket where Oracle p6880880_190000_MSWIN zip file is located
+            default: "Oracle/Runtime_Client_19c_Win_x86-64/p6880880_190000_MSWIN-x86-64.zip"
+          OracleWINDOWSX64193000clientS3KeyPrefix:
+            type: String
+            description: Folder location in S3 bucket where Oracle WINDOWS.X64_193000_client zip file is located
+            default: "Oracle/Runtime_Client_19c_Win_x86-64/WINDOWS.X64_193000_client.zip"
+          OracleUnzipEXES3KeyPrefix:
+            type: String
+            description: Folder location in S3 bucket where Oracle unzip.exe file is located
+            default: "Oracle/Runtime_Client_19c_Win_x86-64/unzip.exe"
+        mainSteps:
+        - inputs:
+            runCommand:
+              - |
+                  $WorkDirectory = "E:\temp\oracle_client"
+                  md -p $WorkDirectory
+
+                  # Set Oracle home directory.
+
+                  md -p "E:\products\database\oracle\19.0.0\runtime_client_1"
+                  $ORACLE_HOME="E:\products\database\oracle\19.0.0\runtime_client_1"
+
+                  #Download Oracle 19c client files from S3 bucket to working directory.
+
+                  Write-Host "Downloading Oracle 19c client install files from {{ClientLocationS3Bucket}} bucket"
+                  Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{OracleRSPLocationS3KeyPrefix}}" -LocalFile $WorkDirectory/install_runtime_client.rsp
+                  Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{Oraclep33810130MSWINS3Prefix}}" -LocalFile $WorkDirectory/p33810130_190000_MSWIN-x86-64.zip
+                  Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{Oraclep33829175MSWINS3KeyPrefix}}" -LocalFile $WorkDirectory/p33829175_190000_MSWIN-x86-64.zip
+                  Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{Oraclep6880880MSWINS3KeyPrefix}}" -LocalFile $ORACLE_HOME/p6880880_190000_MSWIN-x86-64.zip
+                  Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{OracleWINDOWSX64193000clientS3KeyPrefix}}" -LocalFile $WorkDirectory/WINDOWS.X64_193000_client.zip
+                  Copy-S3Object -BucketName "{{ClientLocationS3Bucket}}" -Key "{{OracleUnzipEXES3KeyPrefix}}" -LocalFile $WorkDirectory/unzip.exe
+
+                  #Unzip oracle 19c client zip archive
+                  cd $WorkDirectory
+                  Write-Host "Unzipping Oracle 19c client install files."
+                  tar -xf WINDOWS.X64_193000_client.zip
+                  tar -xf p33829175_190000_MSWIN-x86-64.zip
+                  tar -xf p33810130_190000_MSWIN-x86-64.zip
+
+                  # Install Oracle 19c Client (silent)
+
+                  Write-Host "Installing Oracle 19c client on host."
+                  cd $WorkDirectory\client
+                  .\setup.exe -silent -responseFile $WorkDirectory\install_runtime_client.rsp
+                  sleep(180)
+                  net stop OracleOraClient19Home1TNSListener
+                  net stop OracleRemExecServiceV2
+                  sc.exe config "OracleOraClient19Home1TNSListener" start=disabled
+                  sc.exe config "OracleRemExecServiceV2" start=disabled
+
+                  # Patching
+                  cd $ORACLE_HOME
+                  tar -xf p6880880_190000_MSWIN-x86-64.zip
+
+                  rm $ORACLE_HOME\p6880880_190000_MSWIN-x86-64.zip
+                  OPatch\opatch apply -silent -force -oh $ORACLE_HOME E:\temp\oracle_client\33829175
+                  OPatch\opatch apply -silent -force -oh $ORACLE_HOME E:\temp\oracle_client\33810130
+                  OPatch\opatch lsinventory -oh $ORACLE_HOME > $ORACLE_HOME\dal_oracle_client_patchlevel.txt
+
+          name: "Installoracle19cclient"
+          action: "aws:runPowerShellScript"
+
+  InvokeShareSSMDocLambdaFunction:
+    Type: "Custom::InvokeLambdaFunction"
+    Properties:
+      ServiceToken: '{{resolve:ssm:/delta/lambda/distribute-ssm-document-lambda:1}}'
+      SSMDocumentNames:
+        - !Ref RDSOracleClientInstallSSMDoc
+      ManageAccountIDs: !Split
+              - ','
+              - !Join ["," , [ !Ref dlMigrateAccountIDs, !Ref 9eMigrateAccountIDs, !Ref vsMigrateAccountIDs ] ]

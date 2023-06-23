@@ -1,0 +1,333 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This template shows an example for deploying an RDS instance.
+             IMPORTANT - When deploying this template, make sure to add the blockCode tag to the Stack itself so that all taggable resources in this template (and the Stack itself) are associated with your application. The global tag Lambda will populate other required tags automatically (auto-tagging may take up to 24 hours).
+             WARNING - This template is intended as REFERENCE for creating AWS resources via CloudFormation. This template should NOT be deployed as-is. Instead, you can reuse and adapt the contents to create your own CloudFormation Template.
+Parameters:
+  TagValueBlockCode:
+    Type: String
+    Description: The value for the blockCode tag (must be 10 capital letters)
+    AllowedPattern: "^[A-Z]{10}$"
+  TagValueDataClassification:
+    # The Config Rule named dl-rds-encryption-check requires that each instance enforce encryption
+    # at rest.  If the dataClassification is restricted then the KMS key specified must be a
+    # HSM key.  Otherwise, any KMS key is allowed.
+    Type: String
+    Description: The value for the dataClassification tag
+    AllowedValues: ["public", "internal", "confidential", "restricted"]
+  TagValueCuiIndicator:
+    Type: String
+    Description: The value for the cuiIndicator tag (check iServer for this value)
+    AllowedValues: ["true", "false"]
+  TagValuePciIndicator:
+    Type: String
+    Description: The value for the pciIndicator tag (check iServer for this value)
+    AllowedValues: ["true", "false"]
+  TagValuePhiIndicator:
+    Type: String
+    Description: The value for the phiIndicator tag (check iServer for this value)
+    AllowedValues: ["true", "false"]
+  TagValueSoxIndicator:
+    Type: String
+    Description: The value for the soxIndicator tag (check iServer for this value)
+    AllowedValues: ["true", "false"]
+  SNSTopicForAllRDSMessages:
+    Type: String
+    Description: Please enter SNS topic arn
+  SubnetIdA:
+    Type: String
+    Description: Enter SUbnet ID A
+  SubnetIdB:
+    Type: String
+    Description: Enter SUbnet ID B
+  EngineName:
+    Type: String
+    Description: Specify the name of the engine that this option group should be associated with
+    AllowedValues: ["mariadb","mysql", "oracle-ee", "oracle-ee-cdb", "oracle-se2", "oracle-se2-cdb", "postgres", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web"]
+  MajorEngineVersion:
+    Type: String
+    Description: Specify the major version of the engine that this option group should be associated with
+  TimeZone:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+    Default: 'Eastern Standard Time'
+    AllowedValues: ['Eastern Standard Time', 'Central Standard Time', 'Pacific Standard Time', 'UTC']
+  Family:
+    Description: The DB parameter group family name
+    Type: String
+  SourceType:
+    Type: String
+    Description: Specify the type of source that is generating the events
+    AllowedValues: ["db-instance", "db-cluster", "db-parameter-group", "db-security-group", "db-snapshot", "db-cluster-snapshot"]
+  Enabled:
+    Type: String
+    Description: A value that indicates whether to activate the subscription
+    AllowedValues: ["true", "false"]
+  DBAllocatedStorage:
+    Type: Number
+    Default: 100
+    Description: The initial size of the database (GiB).  The minimum for gp2 storage is 20GB and the minimum for io1 storage is 100 GB.
+    MinValue: 20
+    MaxValue: 65536
+    ConstraintDescription: must be between 20 and 65536 GiB.
+  AllowMajorVersionUpgrade:
+    Type: String
+    Description: A value that indicates whether major version upgrades are allowed
+    AllowedValues: ["true", "false"]
+  AutoMinorVersionUpgrade:
+    Type: String
+    Description: A value that indicates whether minor engine upgrades are applied automatically to the DB instance during the maintenance window
+    AllowedValues: ["true", "false"]
+  RDSInstanceSubnetSSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first subnet in which the lambda function should run.  Migration Account should use /delta/vpc/datasubnet1aid OR /delta/vpc/datasubnet2aid OR datasubnet3aid and other dev accounts should use privatesubnet1aid
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  DBBackupRetentionPeriod:
+    # The config rule named dl-rds-instance-backup-check requires that backup retention period is specified.
+    Description: 'The number of days to keep snapshots of the database.'
+    Type: Number
+    MinValue: 0
+    MaxValue: 35
+    Default: 7
+  DBInstanceClass:
+    AllowedValues: ['db.m5.large','db.m5.xlarge','db.m5.2xlarge','db.m5.4xlarge','db.r5.large','db.r5.xlarge','db.r5.2xlarge','db.t3.medium','db.t3.large','db.t3.xlarge','db.t3.2xlarge']
+    Default: db.t3.xlarge
+    Description: DB instance class. For Burstable please pick t3
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+  EnablePerformanceInsights:
+    Description: 'A flag (true/false) which indicates whether or not performance insights should be enabled on the RDS instance.'
+    Type: String
+    Default: true
+    AllowedValues: ['true', 'false']
+  Engine:
+    Type: String
+    Description: Specify the name of the database engine that you want to use for this DB instance
+    AllowedValues: ["mariadb","mysql", "oracle-ee", "oracle-ee-cdb", "oracle-se2", "oracle-se2-cdb", "postgres", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "aurora-mysql", "aurora-postgresql"]
+  EngineVersion:
+    Type: String
+    Description: Specify the version number of the database engine to use
+  StorageType:
+    Type: String
+    Description: Specifies the storage type to be associated with the DB instance. General Purpose SSD (gp2), or Provisioned IOPS SSD (io1)
+    AllowedValues: ['gp2','io1']
+    Default: gp2
+  StorageEncrypted:
+    Type: String
+    Description: A value that indicates whether the DB instance is encrypted.
+    AllowedValues: ['true', 'false']
+  RDSKmsKey:
+    # The Config Rule named dl-rds-encryption-check requires that each instance enforce encryption
+    # at rest.  If the dataClassification is restricted then the KMS key specified must be a
+    # HSM key.  Otherwise, any KMS key is allowed.
+    Type: String
+    Description: Enter KmsKey  only if the dataClassification is Restricted. And the KmsKey for Restricted dataClassification is CloudHSMKey.
+  DefinedMaintenanceWindow:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+    Default: 'sat:07:00-sat:07:30'
+  DefinedBackupWindow:
+    Description: 'The daily time range in UTC during which you want to create automated backups.'
+    Type: String
+    Default: '09:54-10:24'
+  EnhancedMonitoringInterval:
+    Type: Number
+    Description: The interval, in seconds, between points when Enhanced Monitoring metrics are collected for the DB instance.  To disable colecting Enhanced Monitoring metrics you should specify 0.
+    AllowedValues: [0,1,5,10,15,30,60]
+    Default: 60
+  DBSecret:
+    Type: String
+    Description: Specify the secret
+  AvailabilityZone:
+    Type: String
+    Description: Specify Availibility
+  DBInstanceIdentifier:
+    Type: String
+    Description: A name for the DB instance. If you specify a name, AWS CloudFormation converts it to lowercase. If you don't specify a name, AWS CloudFormation generates a unique physical ID and uses that ID for the DB instance
+  DBName:
+    Type: String
+    Description: Specify DB Name. The meaning of this parameter differs according to the database engine you use
+  Iops:
+    Type: String
+    Description: The number of I/O operations per second (IOPS) that the database provisions. The value must be equal to or greater than 1000
+  EnhancedMonitoringInterval:
+    Type: Number
+    Description: The interval, in seconds, between points when Enhanced Monitoring metrics are collected for the DB instance.  To disable colecting Enhanced Monitoring metrics you should specify 0.
+    AllowedValues: [0,1,5,10,15,30,60]
+    Default: 60
+  EnhancedMonitoringRoleArn:
+    Type: String
+    Description: The ARN for the IAM role that permits RDS to send enhanced monitoring metrics to Amazon CloudWatch Logs
+  MultiAZ:
+    Type: String
+    Description: Specifies whether the database instance is a Multi-AZ DB instance deployment. You can't set the AvailabilityZone parameter if the MultiAZ parameter is set to true.
+    AllowedValues: ['true', 'false']
+  EC2SecurityGroup:
+    Type: String
+    Description: Specify the security group
+  DatabaseCharacterSet:
+    Type: String
+    Description: For supported engines, indicates that the DB instance should be associated with the specified character set.
+  MaxAllocatedStorage:
+    Type: String
+    Description: The upper limit in gibibytes (GiB) to which Amazon RDS can automatically scale the storage of the DB instance.
+  RoleArn:
+    Type: String
+    Description: Specify the ARN of the IAM role that is associated with the DB instance
+Resources:
+# THE FOLLOWING RESOURCE CREATES EVENT SUBSCRIPTIONS WHICH SEND ALL RDS EVENTS RELATED TO RDS INSTANCES TO A SNS TOPIC
+  RDSInstanceEventSubscription:
+    Type: "AWS::RDS::EventSubscription"
+    Properties:
+      SourceType: !Ref SourceType
+      Enabled: !Ref Enabled
+      SnsTopicArn: !Ref SNSTopicForAllRDSMessages
+
+  # The resource below creates a RDS DBParameterGroup.
+  DBParameterGroup:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: !Sub 'Oracle Parameter Group for ${TagValueBlockCode}'
+      Family: !Ref Family
+      Tags:
+        - Key: blockCode
+          Value: !Ref TagValueBlockCode
+        - Key: dataClassification
+          Value: !Ref TagValueDataClassification
+        - Key: cuiIndicator
+          Value: !Ref TagValueCuiIndicator
+        - Key: pciIndicator
+          Value: !Ref TagValuePciIndicator
+        - Key: phiIndicator
+          Value: !Ref TagValuePhiIndicator
+        - Key: soxIndicator
+          Value: !Ref TagValueSoxIndicator
+      Parameters:
+        open_cursors: 315
+
+  # The resource below creates a RDS OptionGroup.
+  DBOptionGroup:
+    Type: 'AWS::RDS::OptionGroup'
+    Properties:
+      OptionGroupDescription: !Sub 'Oracle Options Group for ${TagValueBlockCode}'
+      EngineName: !Ref EngineName
+      MajorEngineVersion: !Ref MajorEngineVersion
+      OptionConfigurations:
+        -
+          OptionName: S3_INTEGRATION
+        -
+          OptionName: NATIVE_NETWORK_ENCRYPTION
+          OptionSettings:
+            -
+              Name: SQLNET.CRYPTO_CHECKSUM_TYPES_SERVER
+              Value: "SHA1,MD5"
+            -
+              Name: SQLNET.CRYPTO_CHECKSUM_TYPES_CLIENT
+              Value: "SHA1,MD5"
+            -
+              Name: SQLNET.ENCRYPTION_SERVER
+              Value: "REQUESTED"
+            -
+              Name: SQLNET.CRYPTO_CHECKSUM_SERVER
+              Value: "REQUESTED"
+
+      Tags:
+        - Key: blockCode
+          Value: !Ref TagValueBlockCode
+        - Key: dataClassification
+          Value: !Ref TagValueDataClassification
+        - Key: cuiIndicator
+          Value: !Ref TagValueCuiIndicator
+        - Key: pciIndicator
+          Value: !Ref TagValuePciIndicator
+        - Key: phiIndicator
+          Value: !Ref TagValuePhiIndicator
+        - Key: soxIndicator
+          Value: !Ref TagValueSoxIndicator
+
+  # The resource below creates a RDS Subnet group.
+  DBSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: DB subnet group
+        - !Ref SubnetIdA
+        - !Ref SubnetIdB
+      Tags:
+        - Key: blockCode
+          Value: !Ref TagValueBlockCode
+        - Key: dataClassification
+          Value: !Ref TagValueDataClassification
+        - Key: cuiIndicator
+          Value: !Ref TagValueCuiIndicator
+        - Key: pciIndicator
+          Value: !Ref TagValuePciIndicator
+        - Key: phiIndicator
+          Value: !Ref TagValuePhiIndicator
+        - Key: soxIndicator
+          Value: !Ref TagValueSoxIndicator
+
+
+  # The resource below creates a RDS instance.
+  DBInstance:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      AllocatedStorage: !Ref DBAllocatedStorage
+      AllowMajorVersionUpgrade: !Ref AllowMajorVersionUpgrade
+      AutoMinorVersionUpgrade: !Ref AutoMinorVersionUpgrade
+      AssociatedRoles:
+          - FeatureName: S3_INTEGRATION
+            RoleArn: !Ref RoleArn
+      AvailabilityZone: !Ref AvailabilityZone
+      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+      CharacterSetName: !Ref DatabaseCharacterSet
+      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      DBName: !Ref DBName
+      DBParameterGroupName: !Ref DBParameterGroup
+      VPCSecurityGroups:
+        - !Ref EC2SecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      # The config rule named dl-rds-deletion-protection-check requires that deletion protection is enabled.
+      # Therefore, in this example, the template is enforcing DeletionProtection to be enabled.
+      DeletionProtection: true
+      CopyTagsToSnapshot: true
+      EnableCloudwatchLogsExports:
+        - alert
+        - audit
+        - listener
+        - trace
+      EnablePerformanceInsights: !Ref EnablePerformanceInsights
+      Engine: !Ref Engine
+      EngineVersion: !Ref EngineVersion
+      Iops: !Ref Iops
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:password}}' ]]
+      MaxAllocatedStorage: !Ref MaxAllocatedStorage
+      MonitoringInterval: !Ref EnhancedMonitoringInterval
+      MonitoringRoleArn: !Ref EnhancedMonitoringRoleArn
+      MultiAZ: !Ref MultiAZ
+      OptionGroupName: !Ref DBOptionGroup
+      PreferredBackupWindow: !Ref DefinedBackupWindow
+      PreferredMaintenanceWindow: !Ref DefinedMaintenanceWindow
+      PerformanceInsightsKMSKeyId: !Ref RDSKmsKey
+      # The config rule named dl-public-access-check requires no public access for RDS instances
+      # Therefore, in this example, the template is enforcing no public access and PubliclyAccessible is set to false.
+      PubliclyAccessible: false
+      StorageEncrypted: !Ref StorageEncrypted
+      StorageType: !Ref StorageType
+      Tags:
+        - Key: blockCode
+          Value: !Ref TagValueBlockCode
+        - Key: dataClassification
+          Value: !Ref TagValueDataClassification
+        - Key: cuiIndicator
+          Value: !Ref TagValueCuiIndicator
+        - Key: pciIndicator
+          Value: !Ref TagValuePciIndicator
+        - Key: phiIndicator
+          Value: !Ref TagValuePhiIndicator
+        - Key: soxIndicator
+          Value: !Ref TagValueSoxIndicator

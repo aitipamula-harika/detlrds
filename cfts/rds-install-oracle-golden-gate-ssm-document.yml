@@ -1,0 +1,230 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating SSM command document that will install Oracle Golden Gate
+Parameters:
+  OGGArtifactsLocationS3Bucket:
+    Type: String
+    Description: Bucket where Oracle Golden Gate install related artifacts is located
+    Default: "delta-rds-artifacts-us-east-1"
+  OGGBinaryFileS3KeyPrefix:
+    Type: String
+    Description: Folder location in S3 bucket where Oracle Golden Gate installer are located
+    Default: "database/software-repository/oracle/ogg/19"
+  OGGBinaryFileNameOnS3:
+    Type: String
+    Description: Oracle Golden Date installer File name in S3 bucket
+    Default: "191004_fbo_ggs_Linux_x64_shiphome.zip"
+  OGGS3ResponseFileKeyPrefix:
+    Type: String
+    Description: Folder location in S3 bucket where Oracle Golden Date installer response file is located
+    Default: "database/software-repository/oracle/ogg/19"
+  OGGResponseFileNameOnS3:
+    Type: String
+    Description: Oracle Golden Date installer response file name in S3 bucket
+    Default: "ogg_19c.rsp"
+  OGGPatchesBinaryFilesS3KeyPrefix:
+    Type: String
+    Description: Oracle Golden Date patches binary files folder in S3 bucket
+    Default: "database/software-repository/oracle/ogg/19"
+Resources:
+    InstallOracleGoldenGateSSMDocument:
+        Type: AWS::SSM::Document
+        Properties:
+            DocumentType: Command
+            Name: 'DL-DB-OracleGoldengate-install'
+            Content :
+              {
+                "schemaVersion": "2.2",
+                "description": "Command document that will install dba tools on windows box",
+                "parameters":{
+                  "OGGArtifactsLocationS3Bucket":{
+                  "type": "String",
+                  "description":"Bucket where Oracle Golden Gate install related artifacts is located",
+                  "default" : {"Ref":"OGGArtifactsLocationS3Bucket"}
+                  },
+                  "OGGBinaryFileS3KeyPrefix":{
+                  "type": "String",
+                  "description":"Folder location in S3 bucket where Oracle Golden Gate installer are located",
+                  "default" : {"Ref":"OGGBinaryFileS3KeyPrefix"}
+                  },
+                  "OGGBinaryFileNameOnS3":{
+                  "type": "String",
+                  "description":"Oracle Golden Date installer File name in S3 bucket",
+                  "default" : {"Ref":"OGGBinaryFileNameOnS3"}
+                  },
+                  "OGGS3ResponseFileKeyPrefix":{
+                  "type": "String",
+                  "description":"Folder location in S3 bucket where Oracle Golden Date installer response file is located",
+                  "default" : {"Ref":"OGGS3ResponseFileKeyPrefix"}
+                  },
+                  "OGGResponseFileNameOnS3":{
+                  "type": "String",
+                  "description":"Oracle Golden Date installer response file name in S3 bucket",
+                  "default" : {"Ref":"OGGResponseFileNameOnS3"}
+                  },
+                  OGGPatchesBinaryFilesS3KeyPrefix:{
+                  "type": "String",
+                  "description":"Oracle Golden Date patches binary files folder in S3 bucket",
+                  "default" : {"Ref":"OGGPatchesBinaryFilesS3KeyPrefix"}
+                  }
+                },
+                "mainSteps": [
+                  {
+                    "action": "aws:runShellScript",
+                    "name": "installoraclegoldengate",
+                    "inputs": {
+                      "runCommand": [ 
+                        "  sudo -E -u daldba sh <<'eof'",
+                        "  ",
+                        "  echo \"running step as $(whoami)\"",
+                        "  temp_dir=\"/products/database/temp\"",
+                        "  ogg_install_dir=\"/products/database/oracle/ogg/19.1\"",
+                        "  ogg_artifacts_s3_bucket=\"{{OGGArtifactsLocationS3Bucket}}\"",
+                        "  ogg_binary_file_key=\"{{OGGBinaryFileS3KeyPrefix}}\"",
+                        "  ogg_binary_file_name=\"{{OGGBinaryFileNameOnS3}}\"",
+                        "  ogg_installer_resp_file_key=\"{{OGGS3ResponseFileKeyPrefix}}\"",
+                        "  ogg_installer_resp_file_name=\"{{OGGResponseFileNameOnS3}}\"",
+                        "  ogg_unarchived_installer_file_location_on_local=\"fbo_ggs_Linux_x64_shiphome/Disk1\"",
+                        "  ogg_unarchived_installer_file_name_on_local=\"runInstaller\"",
+                        "  ",
+                        "  # create temp directory where we will download ogg installer and response file",
+                        "  mkdir -p ${temp_dir}",
+                        "  ",
+                        "  ",
+                        "  # create directory where ogg will be installed",
+                        "  mkdir -p ${ogg_install_dir}",
+                        "  ",
+                        "  # add ogg home and temp dir to bash profile",
+                        "  echo -e \"\\nexport OGG_HOME=\"${ogg_install_dir}\"\" >> ~/.bash_profile",
+                        "  echo -e \"\\nexport TEMP=\"${temp_dir}\"\" >> ~/.bash_profile",
+                        "  ",
+                        "  #echo ogg home and temp dir whenever profile is switched",
+                        "  echo -e \"\\necho \"Oracle 19c Goldengate Home : '${OGG_HOME}'\"\" >> ~/.bash_profile",
+                        "  echo -e \"\\necho \"Oracle Temp Location :  '${TEMP}'\"\" >> ~/.bash_profile",
+                        "  ",
+                        "  source ~/.bash_profile",
+                        "  ",
+                        "  #now lets download the ogg installer binary and response files from s3 bucket",
+                        "  ",
+                        "  ogg_binary_file_s3_uri=\"s3://${ogg_artifacts_s3_bucket}/${ogg_binary_file_key}/${ogg_binary_file_name}\"",
+                        "  ogg_installer_resp_file_s3_uri=\"s3://${ogg_artifacts_s3_bucket}/${ogg_installer_resp_file_key}/${ogg_installer_resp_file_name}\"",
+                        "  ",
+                        "  echo \"downloading ogg installer file ${ogg_binary_file_s3_uri} to ${TEMP}/ogg/\"",
+                        "  ",
+                        "  aws s3 cp ${ogg_binary_file_s3_uri} ${TEMP}/ogg/ --quiet",
+                        "  ",
+                        "  echo \"downloading ogg installer response file ${ogg_installer_resp_file_s3_uri} to ${TEMP}/ogg/\"",
+                        "  ",
+                        "  aws s3 cp ${ogg_installer_resp_file_s3_uri} ${TEMP}/ogg/ --quiet",
+                        "  ",
+                        "  # now lets unzip the installer file",
+                        "  unzip -oq ${TEMP}/ogg/${ogg_binary_file_name} -d ${TEMP}/ogg/",
+                        "  ",
+                        "  #now lets run the installer on local",
+                        "  run_installer_path=\"${TEMP}/ogg/${ogg_unarchived_installer_file_location_on_local}/${ogg_unarchived_installer_file_name_on_local}\"",
+                        "  run_installer_resp_path_local=\"${TEMP}/ogg/${ogg_installer_resp_file_name}\"",
+                        "  ",
+                        "  echo \"running ogg installer from ${run_installer_path} with response file ${run_installer_resp_path_local}\"",
+                        "  ",
+                        "  ${run_installer_path} -silent -showProgress -waitforcompletion -responseFile ${run_installer_resp_path_local}",
+                        "  ",
+                        "  echo \"Oracle Golden Gate install completed\"",
+                        "eof"
+                      ]
+                    }
+                  },
+                  {
+                    "action": "aws:runShellScript",
+                    "name": "runfinalstatement",
+                    "inputs": {
+                      "runCommand": [ 
+                        "  echo \"running step as $(whoami)\"",
+                        "  sudo /products/database/oracle/ogg/19.1/oraInventory/orainstRoot.sh",
+                      ]
+                    }
+                  },
+                  {
+                    "action": "aws:runShellScript",
+                    "name": "updateOPatch",
+                    "inputs": {
+                      "runCommand": [
+                        "  sudo -E -u daldba sh <<'eof'",
+                        " ",
+                        "  echo \"running step as $(whoami)\"",
+                        "  source ~/.bash_profile",
+                        "  temp_dir=\"/products/database/temp\"",
+                        "  ogg_artifacts_s3_bucket=\"{{OGGArtifactsLocationS3Bucket}}\"",
+                        "  ogg_patch_binary_file_key=\"{{OGGPatchesBinaryFilesS3KeyPrefix}}\"",
+                        "  ogg_patch_binary_file_name=\"p6880880_190000_Linux-x86-64.zip\"",
+                        "  patch_name=\"p6880880_190000_Linux-x86-64\"",
+                        "  #now lets download the ogg patch binary file from s3 bucket",
+                        "  ",
+                        "  ogg_patch_binary_file_s3_uri=\"s3://${ogg_artifacts_s3_bucket}/${ogg_patch_binary_file_key}/${ogg_patch_binary_file_name}\"",
+                        "  ",
+                        "  echo \"downloading ogg patch binary file ${ogg_patch_binary_file_s3_uri} to ${TEMP}/patches\"",
+                        "  ",
+                        "  aws s3 cp ${ogg_patch_binary_file_s3_uri} ${TEMP}/patches/ --quiet",
+                        "  ",
+                        "  # backup old OPatch directory",
+                        "  opatch_backup_dir_name=\"OPatch.$(date '+%Y%m%d%H%M').bak\"",
+                        "  echo \" backing up ${OGG_HOME}/OPatch directory to ${OGG_HOME}/${opatch_backup_dir_name} \"",
+                        "  $(mv ${OGG_HOME}/OPatch ${OGG_HOME}/${opatch_backup_dir_name})",
+                        "  # now lets unzip the patch file",
+                        "  unzip -oq ${TEMP}/patches/${ogg_patch_binary_file_name} -d ${OGG_HOME}",
+                        "  echo \" extracted OPatch to ${OGG_HOME}/OPatch \"",
+                        "eof"
+                      ]
+                    }
+                  },
+                  {
+                    "action": "aws:runShellScript",
+                    "name": "installpatchp33038567",
+                    "inputs": {
+                      "runCommand": [
+                        "  sudo -E -u daldba sh <<'eof'",
+                        " ",
+                        "  echo \"running step as $(whoami)\"",
+                        "  source ~/.bash_profile",
+                        "  export ORACLE_HOME=${OGG_HOME}",
+                        "  temp_dir=\"/products/database/temp\"",
+                        "  ogg_artifacts_s3_bucket=\"{{OGGArtifactsLocationS3Bucket}}\"",
+                        "  ogg_patch_binary_file_key=\"{{OGGPatchesBinaryFilesS3KeyPrefix}}\"",
+                        "  ogg_patch_binary_file_name=\"p33038567_19100210720_Linux-x86-64.zip\"",
+                        "  patch_name=\"p33038567_19100210720_Linux-x86-64\"",
+                        "  patch_number=\"33038567\"",
+                        "  #now lets download the ogg patch binary file from s3 bucket",
+                        "  ",
+                        "  ogg_patch_binary_file_s3_uri=\"s3://${ogg_artifacts_s3_bucket}/${ogg_patch_binary_file_key}/${ogg_patch_binary_file_name}\"",
+                        "  ",
+                        "  echo \"downloading ogg patch binary file ${ogg_patch_binary_file_s3_uri} to ${TEMP}/patches\"",
+                        "  ",
+                        "  aws s3 cp ${ogg_patch_binary_file_s3_uri} ${TEMP}/patches/ --quiet",
+                        "  ",
+                        "  # now lets unzip the patch file",
+                        "  unzip -oq ${TEMP}/patches/${ogg_patch_binary_file_name} -d ${TEMP}/patches/${patch_name}",
+                        "  echo \"Applying patch ${patch_name}\"",
+                        "  cd ${TEMP}/patches/${patch_name}/${patch_number}",
+                        "  echo Oracle Home is temporarily set to ${ORACLE_HOME}",
+                        "  ${ORACLE_HOME}/OPatch/opatch apply -silent",
+                        "eof"
+                      ]
+                    }
+                  },
+                  {
+                    "action": "aws:runShellScript",
+                    "name": "cleanuptempdir",
+                    "inputs": {
+                      "runCommand": [
+                        "  sudo -E -u daldba sh <<'eof'",
+                        " ",
+                        "  echo \"running step as $(whoami)\"",
+                        "  temp_dir=\"/products/database/temp\"",
+                        "  echo \"deleting ogg and patches folders from ${temp_dir}\"",
+                        "  $(rm -rf ${temp_dir}/ogg)",
+                        "  $(rm -rf ${temp_dir}/patches)",
+                        "  echo \"deleted ogg and patches folders from ${temp_dir}\"",
+                        "eof"
+                      ]
+                    }
+                  }                                              
+                ]
+              }

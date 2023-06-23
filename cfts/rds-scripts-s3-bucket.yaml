@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating the s3 bucket that will hold RDS scripts. This bucket will be shared with all Delta AWS accounts
+
+Parameters:
+
+  S3BucketName:
+    Type: String
+    Description: The name of the S3 Bucket which contains the RHEL Postconfig Artifacts (example. PostConfig Ansible Playbook)
+    AllowedPattern: "^([a-z0-9]{1}[a-z0-9-]{1,61}[a-z0-9]{1})$"
+    ConstraintDescription: "Bucket names must be lowercase, start and end with a letter or number, and be between 3 and 63 characters in length."
+    Default: delta-postcfg-artifacts
+
+  costCenter:
+    Description: The value for the costCenter tag .
+    Type: String
+    Default: TEST
+
+  iServerID:
+    Description: The value for the iServerID tag
+    Type: String
+    Default: TEST
+
+  dataClassification:
+    Description: The value for the dataClassificationParameter tag
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: internal
+
+  supportGroup:
+    Description: The value for the supportGroup tag
+    Type: String
+    Default: TEST
+
+  assignmentGroup:
+    Description: The value for the assignmentGroup tag
+    Type: String
+    Default: TEST
+
+  migrateAccounts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/accounts/ec2-accounts:1
+
+Resources:
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: TRUE
+        BlockPublicPolicy: TRUE
+        IgnorePublicAcls: TRUE
+        RestrictPublicBuckets: TRUE
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: 'AES256'
+      Tags:
+        - Key: costCenter
+          Value: !Ref costCenter
+        - Key: iServerID
+          Value: !Ref iServerID
+        - Key: dataClassification
+          Value: !Ref dataClassification
+        - Key: supportGroup
+          Value: !Ref supportGroup
+        - Key: assignmentGroup
+          Value: !Ref assignmentGroup
+
+
+  s3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: SSMBucketPermissionsCheck
+          Effect: Allow
+          Principal:
+            AWS: !Split
+              - ','
+              - !Ref migrateAccounts
+          Action:
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:GetBucketTagging
+              - s3:GetObjectTagging
+              - s3:PutBucketTagging
+              - s3:PutObjectTagging
+          Resource:
+            - Fn::Sub:
+              - "${bucket_arn}/*"
+              - bucket_arn: !GetAtt S3Bucket.Arn
+            - Fn::Sub:
+              - "${bucket_arn}"
+              - bucket_arn: !GetAtt S3Bucket.Arn

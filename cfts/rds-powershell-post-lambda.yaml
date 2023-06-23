@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template to Create Powershell lambda function
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'Lambda Parameters'
+      Parameters:
+      - PrivateSubnetA
+      - PrivateSubnetB
+      - PrivateSubnetC
+      - LambdaCodeS3BucketName
+      - LambdaCodeZipFileName
+Parameters:
+  PrivateSubnetA:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  PrivateSubnetB:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the second DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1bid
+  PrivateSubnetC:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the third DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1cid
+  LambdaS3BucketName:
+    Type: String
+    Description: The lambda package uploaded s3 bucket name
+    Default: delta-postcfg-artifacts-us-east-1
+  LambdaZipFileName:
+    Type: String
+    Description: The lambda source code package file name
+    Default: database/lambdas/awslambdapkg_powershell_post.zip
+Resources:
+  #Post Lambda Role
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: delegate-admin-rds-powershell-lambda-execution-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "delta-rds-powershellt-s3-bucket"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - s3:Get*
+                Resource: !Sub arn:aws:s3:::${LambdaS3BucketName}/*
+        - PolicyName: "delta-rds-powershell-ec2"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DetachNetworkInterface
+                Resource: "*"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      PermissionsBoundary: !Join [":", ["arn:aws:iam:", !Ref AWS::AccountId, "policy/cft-developer-boundary-policy"] ]
+  #Post Lambda
+  RunShellScript:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: rds-powershell-script
+      Handler: rds-powershell-script::Handler.Bootstrap::ExecuteFunction
+      VpcConfig: 
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Sub '{{resolve:ssm:/delta/vpc/${PrivateSubnetA}:1}}'
+          - !Sub '{{resolve:ssm:/delta/vpc/${PrivateSubnetB}:1}}'
+          - !Sub '{{resolve:ssm:/delta/vpc/${PrivateSubnetC}:1}}'
+      Role: !GetAtt 
+        - LambdaExecutionRole
+        - Arn
+      Code:
+        S3Bucket: !Ref LambdaS3BucketName
+        S3Key: !Ref LambdaZipFileName 
+      Runtime: dotnetcore3.1
+      Timeout: '240'
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupName: 'rds-powershell-post-script-lambda-sg'
+      GroupDescription: 'SG for the lambda that runs the Secrets Manager RDS rotation process'
+      VpcId: '{{resolve:ssm:/delta/vpc/vpcid:1}}'
+      SecurityGroupIngress:
+        - IpProtocol: "-1"
+          CidrIp: 10.0.0.0/8
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0

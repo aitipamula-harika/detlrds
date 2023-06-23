@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "This template shows how to create an Amazon SNS Topic. This template creates an Amazon SNS Topic. You will be billed for the AWS resources used if you create a stack using this template."
+Parameters:
+  TopicName:
+    Type: String
+    Description: The name for the SNS Topic you would like to create. A Topic name is case-sensitive and can have up to 256 characters. You can use alphanumeric characters, hyphens (-), and underscores ( _ ). If this is a FIFO topic, the name should always end with '.fifo'.
+  blockCode:
+    Type: String 
+    Description: Blockcode for the Database teams.
+    Allowed Values: ['IIMDBAORCL','IIMDBAPSQL','IIMDBAMSQL','IIMDBADBTL']
+  supportGroup:
+    Type: String
+    Description: This should be supportGroup for the Delta Database teams.
+    Allowed Values: ['InfraHostingOps_PostgresDbSup','DBA-SQL Server Support','DBA - Oracle Support']
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: Which environment is this cluster being created within
+    Default: /delta/account/environment:1
+     
+Resources:
+  MySourceTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Ref TopicName
+      Tags:
+        - Key: costCenter
+          Value: C8110ATG
+        - Key: uniqueID
+          Value: D012345
+        - Key: dataClassification
+          Value: internal
+        - Key: supportGroup
+          Value: !Ref supportGroup
+        - Key: assignmentGroup
+          Value: !Ref supportGroup
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: blockcode
+          Value: !Ref blockCode
+        - Key: Region
+          Value: !Ref AWS::Region
+        
+  TopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - 
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Ref AWS::AccountId
+            Action: 'sns:Publish'
+            Resource:
+              - !Ref MySourceTopic
+      Topics:
+        - !Ref MySourceTopic

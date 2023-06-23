@@ -1,0 +1,278 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This CFT creates EC2 secrets and EC2 runtime role for SQL Server RDBMS'
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'EC2 Role Setting'
+      Parameters:
+      - blockCode
+      - computeEngineeringProdAccountNumber
+Parameters:
+  blockCode:
+    Type: String
+    Description: Enter the block code for the project
+    AllowedPattern: ^[a-zA-Z0-9]{10}$
+ 
+  computeEngineeringProdAccountNumber:
+    Type: String
+    Default: "126202423078"
+    Description: "Account number of computeeng-prd"
+ 
+Resources:
+  #The custom runtime role
+  RDSSQLServerRDBMSEC2RuntimeRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Delete
+    Properties:
+      RoleName: !Join [ "-", ['delegate-admin', !Ref blockCode]]
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'ec2.amazonaws.com'
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: "SsmAllowPolicyForRuntimeEC2"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - rds:*
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - dms:*
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+              - secretsmanager:PutSecretValue
+              - secretsmanager:ListSecrets
+              - secretsmanager:TagResource
+              - secretsmanager:UntagResource
+              - secretsmanager:UpdateSecret
+              - secretsmanager:DeleteSecret
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - iam:PassRole
+              Resource:
+               - arn:aws:iam::*:role/rds-monitoring-role
+               - arn:aws:iam::*:role/rdbms-lambda-access
+               - arn:aws:iam::*:role/lambda_exec_role
+               - arn:aws:iam::*:role/lambda-dynamodb-*
+               - arn:aws:iam::*:role/lambda-vpc-execution-role
+               - arn:aws:iam::*:role/DataPipelineDefaultRole
+               - arn:aws:iam::*:role/DataPipelineDefaultResourceRole
+            - Effect: Allow
+              Action:
+              - lambda:CreateEventSourceMapping
+              - lambda:CreateFunction
+              - lambda:DeleteEventSourceMapping
+              - lambda:DeleteFunction
+              - lambda:GetFunctionConfiguration
+              - lambda:ListEventSourceMappings
+              - lambda:ListFunctions
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - events:Put*
+              - events:list*
+              - events:Delete*
+              - events:*Rule
+              - events:Describe*
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - cloudformation:GetTemplate
+              - cloudformation:GetTemplateSummary
+              - cloudformation:ListStacks
+              - cloudformation:ListStackSets          
+              - cloudformation:DescribeStacks
+              - cloudformation:DescribeStacksSets
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStackResources               
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - config:DescribeConfigRules
+              - config:DescribeComplianceByConfigRule
+              - config:DescribeComplianceByResource
+              - config:DescribeConfigRuleEvaluationStatus
+              - config:DescribeRemediationConfigurations
+              - config:DescribeRemediationExecutionStatus
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - ssm:DescribeAssociation
+              - ssm:GetDeployablePatchSnapshotForInstance
+              - ssm:GetDocument
+              - ssm:DescribeDocument
+              - ssm:GetManifest
+              - ssm:GetParameter
+              - ssm:GetParameters
+              - ssm:ListAssociations
+              - ssm:ListCommands
+              - ssm:ListCommandInvocations
+              - ssm:ListDocuments
+              - ssm:ListInstanceAssociations
+              - ssm:PutInventory
+              - ssm:PutComplianceItems
+              - ssm:PutConfigurePackageResult
+              - ssm:UpdateAssociationStatus
+              - ssm:UpdateInstanceAssociationStatus
+              - ssm:UpdateInstanceInformation
+              - ssm:SendCommand
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - ssmmessages:CreateControlChannel
+              - ssmmessages:CreateDataChannel
+              - ssmmessages:OpenControlChannel
+              - ssmmessages:OpenDataChannel
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - ec2messages:AcknowledgeMessage
+              - ec2messages:DeleteMessage
+              - ec2messages:FailMessage
+              - ec2messages:GetEndpoint
+              - ec2messages:GetMessages
+              - ec2messages:SendReply
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - cloudwatch:PutMetricData
+              - cloudwatch:DeleteAlarms
+              - cloudwatch:Describe*
+              - cloudwatch:DisableAlarmActions
+              - cloudwatch:EnableAlarmActions
+              - cloudwatch:Get*
+              - cloudwatch:List*
+              - cloudwatch:PutMetricAlarm
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - ec2:Describe*
+              - ec2:*Tags
+              - ec2:*SecurityGroups
+              - ec2:AuthorizeSecurityGroupIngress
+              - ec2:GetManagedPrefixListAssociations
+              - ec2:DetachVolume
+              - ec2:AttachVolume
+              - ec2:ModifyVolume
+              - ec2:ImportVolume
+              - ec2:ModifyVolumeAttribute
+              - ec2:DescribeReplaceRootVolumeTasks
+              - ec2:DescribeVolumesModifications
+              - ec2:DescribeVolumeAttribute
+              - ec2:CreateVolume
+              - ec2:EnableVolumeIO
+              - ec2:DeleteVolume
+              - ec2:CreateReplaceRootVolumeTask
+              - ec2:DescribeVolumeStatus
+              - ec2:DescribeVolumes
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - ds:CreateComputer
+              - ds:DescribeDirectories
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - logs:Create*
+              - logs:Describe*
+              - logs:Put*
+              - logs:TestMetricFilter
+              - logs:FilterLogEvents
+              - logs:StartQuery
+              - logs:StopQuery
+              - logs:FilterLogEvents
+              - logs:GetLogEvents
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - s3:PutEncryptionConfiguration
+              - s3:CreateMultipartUpload
+              - s3:UploadPart
+              - s3:UploadPartCopy
+              - s3:CompleteMultipartUpload
+              - s3:CopyObject
+              - s3:DeleteObject*
+              - s3:Get*
+              - s3:List*
+              - s3:PutAccelerateConfiguration
+              - s3:PutBucketTagging
+              - s3:PutBucketVersioning
+              - s3:PutBucketWebsite
+              - s3:PutLifecycleConfiguration
+              - s3:PutReplicationConfiguration
+              - s3:Replicate*
+              - s3:RestoreObject
+              - s3:CreateBucket
+              - s3:PutObject
+              - s3:AbortMultipartUpload
+              - s3:*Tagging
+              - s3:ObjectOwnerOverrideToBucketOwner
+              - s3:PutBucketAcl
+              - s3:PutObjectAcl
+
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - acm:ListCertificates
+              - acm:ExportCertificate
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - sns:Publish
+              Resource: !Sub "arn:aws:sns:${AWS::Region}:${computeEngineeringProdAccountNumber}:*"
+        - PolicyName: "SsmDenyPolicyForRuntimeEC2"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Deny
+              Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/delta/ec2/restricted/*"
+            - Effect: Deny
+              Action:
+              - iam:*InstanceProfile
+              - ec2:*InstanceProfileAssociations
+              Resource: "*"       
+        - PolicyName: "SsmAllowSendCommandViaBlockCode"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Condition:
+                ForAllValues:StringEquals:
+                  aws:ResourceTag/blockCode: !Ref blockCode
+              Action:
+              - ssm:SendCommand
+              Resource:
+              - !Sub "arn:aws:ec2:*:${AWS::AccountId}:instance/*"
+              - arn:aws:ssm:*:*:document/*
+              Effect: Allow
+      PermissionsBoundary: !Join [":", ["arn:aws:iam:", !Ref AWS::AccountId, "policy/cft-developer-boundary-policy"] ]
+  
+  # The custom runtime role instance profile
+  EC2SSMInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    DeletionPolicy: Delete
+    Properties:
+      InstanceProfileName: !Join [ "-", ['delegate-admin', !Ref blockCode, 'instance-profile']]
+      Path: /
+      Roles:
+        -
+          Ref: RDSSQLServerRDBMSEC2RuntimeRole
+   
+
+
+  

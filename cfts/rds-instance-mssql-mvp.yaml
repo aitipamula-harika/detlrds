@@ -1,0 +1,1537 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Description": "AWS CloudFormation Sample Template for creating an Amazon RDS DB instance:
+  Sample template showing how to create a MSSQL DB instance with simple configuration.
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'MSSQL Database details & credentials'
+      Parameters:
+      - Environment
+      - RDSInstanceSubnetSSMParameter
+      - RDSSubnetGroupSubnet1SSMParameter
+      - RDSSubnetGroupSubnet2SSMParameter
+      - RDSSubnetGroupSubnet3SSMParameter
+      - Blockcode
+      - DBNumber
+      - DBNumberSuffix
+      - RDSVersion
+    - Label:
+        default: 'AWS RDS MSSQL Parameters'
+      Parameters:
+      - EnablePerformanceInsights
+      - EnhancedMonitoringInterval
+      - PerformanceInsightsRetentionPeriod
+      - DBInstanceClass
+      - StorageType
+      - Iops
+      - DBAllocatedStorage
+      - MaxAllocatedStorage
+      - LogRetention
+      - DBOptionGroupName
+      - DBBackupRetentionPeriod
+      - DefinedMaintenanceWindow
+      - DefinedBackupWindow
+      - EnableReadReplica
+      - DeltaPrivatePrefixList
+      - TimeZone
+      - Edition
+    - Label:
+        default: 'AWS RDS Tagging Parameters'
+      Parameters:
+      - costCenterParameter
+      - uniqueIDParameter
+      - dataClassificationParameter
+      - supportGroupParameter
+      - changeGroupParameter
+      - drTierParameter
+      - pciIndicator
+      - soxIndicator
+      - cuiIndicator
+      - phiIndicator
+      - appSupportEmail 
+    - Label:
+       default: 'AWS RDS Monitoring Parameters'
+      Parameters:
+      - CreateAlarms
+      - logMetricNamespace
+      - DBLoadCpuAlarmTheshold
+      - FreeableMemoryAlarmTheshold
+      - FreeStorageSpaceAlarmTheshold
+      - SnowSNSTopic
+
+    ParameterLabels:
+      RDSVersion:
+        default: "MSSQL Engine version for database:"
+        
+Parameters:
+  Blockcode:
+    Type: String
+    Description: Enter the 10 character Blockcode (in lowercase) for this RDS instance
+    AllowedPattern: '^[a-z0-9]{10}$'
+    ConstraintDescription: The Blockcode must entered in lowercase and must be 10 characters long
+  DBNumber:
+    Type: String
+    Description: Enter the 2 digit database number for this RDS instance
+    Default: "01"
+    AllowedPattern: ^[0-9]{2}$
+    ConstraintDescription: The DBNumber must be 2 characters long
+  DBNumberSuffix:
+    Type: String
+    Description: Enter the 2 digit number for the default Database Name
+    Default: "01"
+    AllowedPattern: ^[0-9]{2}$
+    ConstraintDescription: The DBNumberSuffix must be 2 characters long
+  DBInstanceClass:
+    AllowedValues: ['db.m5.large','db.m5.xlarge','db.m5.2xlarge','db.m5.4xlarge','db.r5.large','db.r5.xlarge','db.r5.2xlarge','db.t3.medium','db.t3.large','db.t3.xlarge','db.t3.2xlarge']
+    Default: db.t3.xlarge
+    Description: DB instance class. For Burstable please pick t3
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+  StorageType:
+    Type: String
+    Description: Specifies the storage type to be associated with the DB instance. General Purpose SSD (gp2), or Provisioned IOPS SSD (io1)
+    AllowedValues: ['gp2','io1']
+    Default: gp2
+  RDSInstanceSubnetSSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first subnet in which the lambda function should run.  Migration Account should use /delta/vpc/datasubnet1aid OR /delta/vpc/datasubnet2aid OR datasubnet3aid and other dev accounts should use privatesubnet1aid
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  RDSSubnetGroupSubnet1SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  RDSSubnetGroupSubnet2SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the second DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1bid
+  RDSSubnetGroupSubnet3SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the third DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1cid
+  Iops:
+    Type: Number
+    Description: The number of I/O operations per second (IOPS) that the database provisions. The value must be equal to or greater than 1000 and less than 80000.  This parameter is only applicable if the storage type is io1.
+    Default: 3000
+    MinValue: 1000
+    MaxValue: 80000
+  DBAllocatedStorage:
+    Type: Number
+    Default: 100
+    Description: The initial size of the database (GiB).  The minimum for gp2 storage is 20GB and the minimum for io1 storage is 100 GB.
+    MinValue: 20
+    MaxValue: 65536
+    ConstraintDescription: must be between 20 and 65536 GiB.
+  MaxAllocatedStorage:
+    Type: Number
+    Default: '1000'
+    Description: The maximum size in GB that this RDS instance can auto-scale to.  This number has to be greater than the initial allocated storage size and less than 65536 GB.
+    MinValue: 21
+    MaxValue: 65536
+  RDSVersion:
+    Description: 'The drop down options are RDS2019- 15.00.4198.2.v1 and RDS2016-13.00.6300.2.v1 '
+    Type: String
+    Default: '15.00.4198.2.v1'
+    AllowedValues: ['15.00.4198.2.v1','13.00.6300.2.v1']
+  Edition:
+    Type: String
+    Description: Please indicate the edition you would like to use when creating your MS SQL  DB instance
+    AllowedValues: ['Standard', 'Enterprise']
+    Default: Standard
+  EnablePerformanceInsights:
+    Description: 'A flag (true/false) which indicates whether or not performance insights should be enabled on the RDS instance.'
+    Type: String
+    Default: true
+    AllowedValues: ['true', 'false']
+  DefinedBackupWindow:
+    Description: 'The daily time range in UTC during which you want to create automated backups.'
+    Type: String
+    Default: '09:54-10:24'
+  DefinedMaintenanceWindow:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+    Default: 'sat:07:00-sat:07:30'
+  DBBackupRetentionPeriod:
+    Description: 'The number of days to keep snapshots of the database.'
+    Type: Number
+    MinValue: 0
+    MaxValue: 35
+    Default: 7
+  LogRetention:
+    Type: Number
+    Description: The length of time (in days) that you wish CloudWatch to retain the RDS logs for.
+    Default: 60
+    AllowedValues: [1,3,5,7,14,30,60,90,120,150,180,365,400,545,731,1827,3653]
+  PerformanceInsightsRetentionPeriod:
+    Type: Number
+    Description: The amount of time, in days, to retain Performance Insights data.
+    Default: 7
+    AllowedValues: [7,731]
+  EnhancedMonitoringInterval:
+    Type: Number
+    Description: The interval, in seconds, between points when Enhanced Monitoring metrics are collected for the DB instance.  To disable colecting Enhanced Monitoring metrics you should specify 0.
+    AllowedValues: [0,1,5,10,15,30,60]
+    Default: 60
+  TimeZone:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+    Default: 'Eastern Standard Time'
+    AllowedValues: ['Eastern Standard Time', 'Central Standard Time', 'Pacific Standard Time', 'UTC']
+  costCenterParameter:
+    Description: The value for the costCenter tag.
+    Type: String
+  uniqueIDParameter:
+    Description: The value for the uniqueID
+    Type: String
+  dataClassificationParameter:
+    Description: The value for the dataClassificationParameter tag.
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: internal
+  supportGroupParameter:
+    Description:  Enter a value only if this is Cloud Native ( Containerize/Modernize) AWS account. Migrate accounts will use default values.
+    Type: String
+    Default: DBA-SQL Server Support
+  changeGroupParameter:
+    Description: Enter a value only if this is Cloud Native (Containerize/Modernize) AWS account. Migrate accounts will use default values.
+    Type: String
+    Default: DBA-SQL Server Support
+  drTierParameter:
+    Type: String
+    Description: The value for the appCriticality tag
+    AllowedValues: ['MV', 'MC', 'BC', 'BE', 'B']
+    Default: B
+  pciIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  soxIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  cuiIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  phiIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  appSupportEmail:
+    Type: String
+    Description: The app support group email
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+  EnableReadReplica:
+    Type: String
+    Description: To include ReadReplica this parameter should to be true
+    AllowedValues: ['true', 'false']
+    Default: false
+  DeltaPrivatePrefixList:
+    Description: On Prem manage prefix list. For Migrate Accounts the default works . For Containerize will need input from VPC managed prefix lists.
+    Type: String
+    Default: pl-05a3c87e010904082
+  CreateAlarms:  
+    Type: String
+    Description: Only Applicable to Migrate accounts. Please set to True if you want to create alarms along with RDS Instance. For SI/Prod database it will created alarms irrespective parameter value. 
+    AllowedValues: ['true', 'false']
+    Default: false
+  logMetricNamespace:
+    Type: String
+    Description: The name of log metric namespace. Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore.  
+    Default: RdsLogMetrics
+  DBLoadCpuAlarmTheshold:
+    Type: Number
+    Description: Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore. Please enter threshold for DbLoadCpu. Ideally it shoule be set value = number of VCPUs allocated RDS instance based on Instance Type + 1. Refer https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.DBInstanceClass.html#Concepts.DBInstanceClass.Summary for more info.
+  FreeableMemoryAlarmTheshold:
+    Type: Number
+    Default: 100000000 
+    Description: Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore. Please enter threshold for free Space below which you would like to get Alarm. Default is set to 100MB=100000000  in bytes. 
+  FreeStorageSpaceAlarmTheshold:
+    Type: Number
+    Default: 4000000000 
+    Description: Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore. Please enter threshold for free Space below which you would like to get Alarm. Default is set to 4 GB=4000000000   in bytes. 
+  SnowSNSTopic:
+    Type: String
+    Default: RDS-Alerts-All
+    Description: Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore. The SNS Topic for sending alarms to lambda to forward it further to snow. Default should work in all cases.  
+  
+Mappings:
+  AZMap:
+    privatesubnet1aid:
+      "az": "us-east-1a"
+    privatesubnet2aid:
+      "az": "us-east-1b"
+    privatesubnet3aid:
+      "az": "us-east-1c"
+    datasubnet1aid:
+      "az": "us-east-1a"
+    datasubnet1bid:
+      "az": "us-east-1f"
+    datasubnet1cid:
+      "az": "us-east-1c"
+  EnvironmentMap:
+    sandbox:
+      "abbreviation": "l"
+      "shortname": "sbx"
+    development:
+      "abbreviation": "d"
+      "shortname": "dev"
+    systems-integration:
+      "abbreviation": "i"
+      "shortname": "si"
+    production:
+      "abbreviation": "p"
+      "shortname": "prd"
+  RegionMap:
+    us-east-1:
+      "abbreviation": "NV"
+    us-east-2:
+      "abbreviation": "OH"
+  RDSVersionMap:
+    13.00.6300.2.v1:
+      "shortname": "13"
+    14.00.3421.10.v1:
+      "shortname": "14"
+    15.00.4198.2.v1:
+      "shortname": "15"
+  
+   
+    
+
+Conditions:
+  EnhancedMonitoringDisabled: !Equals
+    - !Ref EnhancedMonitoringInterval
+    - 0
+  PeformanceInsightsDisabled: !Equals
+    - !Ref EnablePerformanceInsights
+    - false
+  EnhancedMonitoringEnabled: !Not
+    - Condition: EnhancedMonitoringDisabled
+  isGP2: !Equals
+    - !Ref StorageType
+    - 'gp2'
+  isDevelopmentAccount: !Equals
+    - !Ref Environment
+    - development
+  isSIorPRDAccount: !Not
+    - Condition: isDevelopmentAccount
+  StandardEdition: !Equals
+    - !Ref Edition
+    - Standard
+  EnterpriseEdition: !Equals
+    - !Ref Edition
+    - Enterprise
+  isReadReplicaEnabled: !Equals
+    - !Ref EnableReadReplica
+    - 'true'
+  
+
+   # Conditions to ensure that Multi_Az is disallowed in development environment and some specific SI and Prod accounts.
+  isMvDrTier: !And
+    - !Equals [!Ref drTierParameter, MV]
+    - Condition: isSIorPRDAccount
+  isMcDrTier: !And
+    - !Equals [!Ref drTierParameter, MC]
+    - Condition: isSIorPRDAccount
+  isBcDrTier: !And
+    - !Equals [!Ref drTierParameter, BC]
+    - Condition: isSIorPRDAccount
+  isBeDrTier: !And
+    - !Equals [!Ref drTierParameter, BE]
+    - Condition: isSIorPRDAccount
+  isBDrTier: !Or
+    - !Equals [!Ref drTierParameter, B]
+    - Condition: isDevelopmentAccount
+  isMvDrTierMcDrTierBcDrTier: !Or
+  - Condition: isMvDrTier
+  - Condition: isMcDrTier
+  - Condition: isBcDrTier
+  - Condition: isBeDrTier
+  #Following conditions ensure that we create alarms only for migrate accounts and not for containarize
+  isCreateAlarm: !Equals
+    - !Ref CreateAlarms
+    - 'true'
+  isDevMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 108101204381
+  isSiMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 934408279768
+  isPrdMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 022190431571  
+  
+  #Air4 Accounts
+  isSiVsMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 665733732159
+  isPrdVsMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 107371347474
+
+  #Endevour Accounts
+  isDev9eMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 012898326796
+  isSi9eMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 356731337321
+  isPrd9eMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 262358483542
+
+  isMigrate: !Or
+    - Condition: isDevMigrate
+    - Condition: isSiMigrate
+    - Condition: isPrdMigrate
+    - Condition: isSiVsMigrate
+    - Condition: isPrdVsMigrate
+    - Condition: isDev9eMigrate
+    - Condition: isSi9eMigrate
+    - Condition: isPrd9eMigrate
+
+  isMigrateSiPrd: !And
+    - Condition: isSIorPRDAccount
+    - Condition: isMigrate 
+  isMigrateDevCreateAlarm: !And
+    - Condition: isDevMigrate
+    - Condition: isCreateAlarm 
+  isMigisSIorPRDAccountisCreateAlarm: !Or
+    - Condition: isMigrateSiPrd
+    - Condition: isMigrateDevCreateAlarm
+   
+  # dataClassification: internal or confidential a CMK to be generated for each RDSKey  ( rds-<blockcode>-CMK )
+  
+  InternaldataClassification: !Equals [!Ref dataClassificationParameter, 'internal']
+  ConfidentialdataClassification: !Equals [!Ref dataClassificationParameter, 'confidential']
+  PublicdataClassification: !Equals [!Ref dataClassificationParameter, 'public']
+  RestricteddataClassification: !Equals [!Ref dataClassificationParameter, 'restricted']
+  IsdataClassificationInternalOrConfidentialOrPublicOrRestricted: !Or [Condition: InternaldataClassification, Condition: ConfidentialdataClassification,  Condition: PublicdataClassification, Condition: RestricteddataClassification]
+  
+Resources:
+
+# The following resource creates a cloudwatch log group where the error logs for MSSQL will be stored
+  # This resource is required in order to specify the retention length that should be used by CloudWatch
+  errorCloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub
+        - /aws/rds/instance/sql-${Blockcode}-${env}${DBNumber}/error
+        - {env: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]}
+      RetentionInDays: !Ref LogRetention
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail 
+  # The following resource creates a cloudwatch log group where the agent logs for MSSQL will be stored
+  # This resource is required in order to specify the retention length that should be used by CloudWatch
+  agentCloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub
+        - /aws/rds/instance/sql-${Blockcode}-${env}${DBNumber}/agent
+        - {env: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]}
+      RetentionInDays: !Ref LogRetention
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail 
+  # The following resource creates a CMK to be used by Masteruser Secret as well as all database user secrets
+  CMKforRDSUserSecrets:
+    Type: AWS::ServiceCatalog::CloudFormationProvisionedProduct
+    Properties:
+      ProductName: "KMS CMK"
+      ProvisionedProductName: !Sub
+        - sql-${Blockcode}-${env}-${DBNumber}-dbuser-secret-cmk
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+          }      
+      ProvisioningArtifactName: "1.8"
+      ProvisioningParameters:
+        - Key: KEYNAME
+          Value: !Sub
+            - sql-${Blockcode}-${env}-${DBNumber}-dbuser-secret-cmk
+            - {
+              env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+              }           
+        - Key: KEYACCESS1
+          Value: DeveloperPowerUserProvisioner
+        - Key: KEY1PERMISSIONS
+          Value: Both
+        - Key: KEYACCESS2
+          Value: DBAOperator
+        - Key: KEY2PERMISSIONS
+          Value: Decrypt
+        - Key: SERVICENAME
+          Value: ""
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        
+  # The CMK for RDS
+  CMKforRDS:
+    Condition: IsdataClassificationInternalOrConfidentialOrPublicOrRestricted
+    Type: AWS::ServiceCatalog::CloudFormationProvisionedProduct
+    Properties:
+      ProductName: "KMS CMK"
+      ProvisionedProductName: !Sub
+        - sql-${Blockcode}-${env}-${DBNumber}-rds-cmk
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+          }  
+      ProvisioningArtifactName: "1.8"
+      ProvisioningParameters:
+        - Key: KEYNAME
+          Value: !Sub
+            - sql-${Blockcode}-${env}-${DBNumber}-rds-cmk
+            - {
+              env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+              }          
+        - Key: KEYACCESS1
+          Value: DeveloperPowerUserProvisioner
+        - Key: KEY1PERMISSIONS
+          Value: Both
+        - Key: KEYACCESS2
+          Value: DBAOperator
+        - Key: KEY2PERMISSIONS
+          Value: Decrypt
+        - Key: SERVICENAME
+          Value: ""
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+     
+  # The resource below creates a new IAM role which is used for enhanced monitoring.
+  # This role will only get created if the parameter for this stack specifies enabling enhanced monitoring
+  EnhancedMonitoringRole:
+    Condition: EnhancedMonitoringEnabled
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'delegate-admin-mssql-monitoring-role-${AWS::StackName}'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - monitoring.rds.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+      PermissionsBoundary:
+        Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail 
+
+  # The resource below creates an EC2 Security Group which is then used when creating the RDS DB Instance.
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'MSSQL RDS Security Group for ${Blockcode}'
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        Description: This ingress rule allows pl-05a3c87e010904082Opnet to communicate correctly over port 27101
+        SourcePrefixListId: !Ref DeltaPrivatePrefixList
+        FromPort: 1433
+        ToPort: 1433
+      VpcId: '{{resolve:ssm:/delta/vpc/vpcid:1}}'
+      Tags:
+        - Key: "Name"
+          Value: !Sub
+           - ${reg}-${env}-${os}${tier}-${Blockcode}
+           -  {
+              reg:  !FindInMap [RegionMap, !Ref "AWS::Region", "abbreviation"],
+              env:  !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+             os: 'L',     # L|W     L=LINUX,W=Windows
+             tier: 'D'   # W|A|D   W=Web,A=App,D=Database
+             }
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail 
+
+  # The resource below creates a ENTERPRISE EDITION MSSQL Parameter Group that is used when creating the RDS DB Instance.
+  # IMPORTANT: The minimum required parameter for MSSQL is to have force_ssl = 1.  If you do not have this
+  # parameter set then the DB will be marked as non-compliant and will be deleted via a config rule.
+  EnterpriseParameterGroup:
+    Condition: EnterpriseEdition
+    Type: "AWS::RDS::DBParameterGroup"
+    Properties:
+      Description: "Delta Enterprise MSSQL Parameter Group"
+      #Family: sqlserver-ee-15.0
+      Family: !Sub
+        - sqlserver-ee-${RDSVersion}.0
+        - {
+          RDSVersion: !FindInMap [RDSVersionMap, !Ref RDSVersion, "shortname"]
+          }
+      Parameters:
+        rds.force_ssl: 1
+      Tags:
+        - Key: Name
+          Value: !Sub
+           - delta-sqlserver-ee-${RDSVersion}.0
+           - {
+             RDSVersion: !FindInMap [RDSVersionMap, !Ref RDSVersion, "shortname"]
+             }
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail 
+
+  # The resource below creates a STANDARD EDITION MSSQL Parameter Group that is used when creating the RDS DB Instance.
+  # IMPORTANT: The minimum required parameter for MSSQL is to have force_ssl = 1.  If you do not have this
+  # parameter set then the DB will be marked as non-compliant and will be deleted via a config rule.
+  StandardParameterGroup:
+    Condition: StandardEdition
+    Type: "AWS::RDS::DBParameterGroup"
+    Properties:
+      Description: "Delta Standard MSSQL Parameter Group"
+      Family: !Sub
+        - sqlserver-se-${RDSVersion}.0
+        - {
+          RDSVersion: !FindInMap [RDSVersionMap, !Ref RDSVersion, "shortname"]
+          }
+      Parameters:
+        rds.force_ssl: 1
+      Tags:
+        - Key: Name
+          Value: !Sub
+           - delta-sqlserver-se-${RDSVersion}.0
+           - {
+             RDSVersion: !FindInMap [RDSVersionMap, !Ref RDSVersion, "shortname"]
+             }
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail 
+
+  # The resource below creates a secret inside AWS Secrets Manager.  The secret contains a default username
+  # and a generated password.  Secrets are encrypted using a KMS CMK Key.
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub
+        - sql-${Blockcode}-${env}-${DBNumber}-credentials
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+          }
+      Description: !Sub 'This is the secret for the MSSQL RDS instance created for the database by CFT stack ${AWS::StackId}'
+      KmsKeyId: !GetAtt 'CMKforRDSUserSecrets.Outputs.CMKARN'
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "db_admin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludeCharacters: '\\"$`~][{^}*.''&()+-_;:#></@ '
+      Tags:
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: appCriticalityTier
+          Value: !Ref drTierParameter
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+  DBSecretPolicy:
+    Type: AWS::SecretsManager::ResourcePolicy
+    Properties:
+      BlockPublicPolicy: True
+      SecretId: !Ref DBSecret
+      ResourcePolicy:
+        Version: '2012-10-17'
+        Statement:
+        
+        - Resource: !Ref DBSecret
+          Action:
+            - secretsmanager:GetSecretValue
+            - secretsmanager:DescribeSecret 
+            - secretsmanager:PutSecretValue 
+            - secretsmanager:ListSecrets 
+            - secretsmanager:TagResource
+            - secretsmanager:UntagResource 
+            - secretsmanager:UpdateSecret 
+            - secretsmanager:DeleteSecret 
+              
+          Effect: Allow
+          Principal:
+            AWS: 
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/DeveloperPowerUserProvisioner
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/DBAOperator
+        - Resource: !Ref DBSecret
+          Action:
+            - secretsmanager:GetSecretValue
+            - secretsmanager:DescribeSecret 
+            - secretsmanager:PutSecretValue 
+            - secretsmanager:ListSecrets 
+            - secretsmanager:TagResource
+            - secretsmanager:UntagResource 
+            - secretsmanager:UpdateSecret 
+            - secretsmanager:DeleteSecret 
+          Effect: Deny
+          Principal: 
+            AWS: '*'
+          Condition:
+            StringNotEquals: 
+              aws:PrincipalArn:
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/DeveloperPowerUserProvisioner
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/DBAOperator
+
+
+  # The resource below creates a DB Subnet Group that is used when creating the RDS DB Instance.
+  # The DB Subnet Group utilizes the current accounts subnets which are specified inside SSM parameters.
+  DBSubnetGroup:
+    Properties:
+      DBSubnetGroupDescription: DB subnet group
+      SubnetIds:
+        - !Sub '{{resolve:ssm:/delta/vpc/${RDSSubnetGroupSubnet1SSMParameter}:1}}'
+        - !Sub '{{resolve:ssm:/delta/vpc/${RDSSubnetGroupSubnet2SSMParameter}:1}}'
+        - !Sub '{{resolve:ssm:/delta/vpc/${RDSSubnetGroupSubnet3SSMParameter}:1}}'
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: engineVersion
+          Value: !Sub "sql-${RDSVersion}"
+        - Key: appCriticalityTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail        
+    Type: "AWS::RDS::DBSubnetGroup"
+
+  # The resource below creates a STANDARD EDITION MSSQL Option Group that is used when creating the RDS DB Instance.
+  # This option group has no parameters and only serves as an example. Application teams can select the required options
+  StandardDBOptionGroup:
+    Condition: StandardEdition
+    Type: 'AWS::RDS::OptionGroup'
+    Properties:
+      OptionGroupDescription: !Sub 'MSSQL Options Group for ${Blockcode}'
+      EngineName: 'sqlserver-se'
+      MajorEngineVersion: !Sub
+        - ${RDSVersion}.00
+        - {
+          RDSVersion: !FindInMap [RDSVersionMap, !Ref RDSVersion, "shortname"]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub 'MSSQL Options Group for ${Blockcode}'
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: engineVersion
+          Value: !Sub "sql-${RDSVersion}"
+        - Key: appCriticalityTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail                
+
+  # The resource below creates a ENTERPRISE EDITION MSSQL Option Group that is used when creating the RDS DB Instance.
+  # This option group has no parameters and only serves as an example. Application teams can select the required options
+  EnterpriseDBOptionGroup:
+    Condition: EnterpriseEdition
+    Type: 'AWS::RDS::OptionGroup'
+    Properties:
+      OptionGroupDescription: !Sub 'MSSQL Options Group for ${Blockcode}'
+      EngineName: 'sqlserver-ee'
+      MajorEngineVersion: !Sub
+        - ${RDSVersion}-.00
+        - {
+          RDSVersion: !FindInMap [RDSVersionMap, !Ref RDSVersion, "shortname"]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub 'MSSQL Options Group for ${Blockcode}'
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: engineVersion
+          Value: !Sub "sql-${RDSVersion}"
+        - Key: appCriticalityTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail                
+                
+  # The resource below creates a MSSQL RDS instance and a single DB instance.
+  # Timezone parameter will be used to set the db timezone
+  DBInstance:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      AllocatedStorage: !Ref DBAllocatedStorage
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      Timezone: !Ref TimeZone
+      AvailabilityZone: !If
+        - isDevelopmentAccount
+        - !FindInMap [AZMap, !Ref RDSInstanceSubnetSSMParameter, "az"]
+        - !Ref AWS::NoValue
+      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceIdentifier: !Sub
+        - sql-${Blockcode}-${env}-${DBNumber} 
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+          }
+      DBParameterGroupName: !If [StandardEdition, !Ref StandardParameterGroup, !Ref EnterpriseParameterGroup]
+      VPCSecurityGroups:
+        - !Ref EC2SecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DeletionProtection: true
+      CopyTagsToSnapshot: true
+      EnableCloudwatchLogsExports:
+        - error
+        - agent
+      EnablePerformanceInsights: !Ref EnablePerformanceInsights
+      Engine: !If [StandardEdition, sqlserver-se, sqlserver-ee]
+      EngineVersion: !Ref RDSVersion
+      Iops: !If [isGP2, !Ref AWS::NoValue, !Ref Iops]
+      KmsKeyId: !GetAtt 'CMKforRDS.Outputs.CMKARN'
+      LicenseModel: license-included
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:password}}' ]]
+      MaxAllocatedStorage: !Ref MaxAllocatedStorage
+      MonitoringInterval: !If [EnhancedMonitoringDisabled, !Ref AWS::NoValue, !Ref EnhancedMonitoringInterval]
+      MonitoringRoleArn: !If [EnhancedMonitoringDisabled, !Ref AWS::NoValue, !GetAtt EnhancedMonitoringRole.Arn]
+      MultiAZ: !If [isMvDrTierMcDrTierBcDrTier, true, false]
+      OptionGroupName: !If [StandardEdition, !Ref StandardDBOptionGroup, !Ref EnterpriseDBOptionGroup]
+      PreferredBackupWindow: !Ref DefinedBackupWindow
+      PreferredMaintenanceWindow: !Ref DefinedMaintenanceWindow
+      PerformanceInsightsKMSKeyId: !GetAtt 'CMKforRDS.Outputs.CMKARN'
+      PerformanceInsightsRetentionPeriod: !If [PeformanceInsightsDisabled, !Ref AWS::NoValue, !Ref PerformanceInsightsRetentionPeriod]
+      StorageEncrypted: true
+      StorageType: !Ref StorageType
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: engineVersion
+          Value: !Sub "sql-${RDSVersion}"
+        - Key: appCriticalityTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+  # The resource below creates a Postgres RDS Replica instance, if EnableReadReplica true
+  ReplicaDBInstance:
+    Condition: isReadReplicaEnabled
+    Type: AWS::RDS::DBInstance
+    Properties:
+      SourceDBInstanceIdentifier: !Ref DBInstance
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      MaxAllocatedStorage: !Ref MaxAllocatedStorage
+      StorageType: !Ref StorageType
+      VPCSecurityGroups:
+        - !Ref EC2SecurityGroup
+      DBInstanceIdentifier: !Sub
+        - sql-replica-${Blockcode}-${env}-${DBNumber}
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+          }
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: engineVersion
+          Value: !Sub "sql-${RDSVersion}"
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: appCriticalityTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+
+  # The resource below creates a AWS Secrets Manager Attachment.  This resource completes
+  # the final link between a Secrets Manager secret and the associated database.
+  SecretRDSInstanceAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DBSecret
+      TargetId: !Ref DBInstance
+      TargetType: AWS::RDS::DBInstance
+  # The resource below creates a AWS Secrets Manager Attachment.  This resource completes
+  # the final link between a Secrets Manager secret and the associated database.
+
+  ReplicaSecretRDSInstanceAttachment:
+    Condition: isReadReplicaEnabled
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DBSecret
+      TargetId: !Ref ReplicaDBInstance
+      TargetType: AWS::RDS::DBInstance
+
+  # The Route53 recordset below creates a friendly CName which points to the default RDS DNS endpoint.
+  # Clients can use this friendly name when communicating with the RDS instance.
+  # If Multi AZ enabled listner endpoint will be used in CNAME 
+  RouteRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: '{{resolve:ssm:/delta/r53/hostedzoneid:1}}'
+      Name: !Sub
+        - "sql-${Blockcode}-${DBNumber}.${hostedzonedomain}"
+        - {
+          hostedzonedomain: '{{resolve:ssm:/delta/r53/hostedzonename:1}}'
+          }
+      Type: CNAME
+      TTL: '300'
+      ResourceRecords:
+        - !If
+          - isBDrTier
+          - !GetAtt DBInstance.Endpoint.Address
+          - !Join ['.', ['listener', !GetAtt DBInstance.Endpoint.Address]]
+    DependsOn: DBInstance
+  # The Route53 recordset below creates a friendly CName which points to the default RDS DNS endpoint.
+  # Clients can use this friendly name when communicating with the RDS Replica instance.
+  ReplicaRouteRecordSet:
+    Condition: isReadReplicaEnabled
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: '{{resolve:ssm:/delta/r53/hostedzoneid:1}}'
+      Name: !Sub
+        - "sql-replica-${Blockcode}-${DBNumber}.${hostedzonedomain}"
+        - {
+          hostedzonedomain: '{{resolve:ssm:/delta/r53/hostedzonename:1}}'
+          }
+      Type: CNAME
+      TTL: '300'
+      ResourceRecords:
+      - !GetAtt ReplicaDBInstance.Endpoint.Address
+    DependsOn: ReplicaDBInstance
+
+  #################### Metric Filters and Metrics #######################################
+  # Following is list of all metric filters we need before creating alarms. 
+  # Each Metric filter creates a metric which then can be utilized while createing alarms. 
+  
+  
+  # This Metric filter will  search for all Severity 2* messages in sqlserver error log
+  # sqlserver database error log and create corresponding metric
+  FilterFatalsqlRds:
+    Condition: isMigisSIorPRDAccountisCreateAlarm  
+    Type: AWS::Logs::MetricFilter
+    Properties: 
+      LogGroupName: !Sub  
+      - "/aws/rds/instance/${RdsDbInstance}/error"
+      - {
+          RdsDbInstance: !Ref DBInstance
+        }
+      FilterPattern:  "\"Severity: 20\" - \"Error: 17806\""
+      MetricTransformations: 
+      - MetricValue: "1"
+        MetricNamespace: !Ref logMetricNamespace
+        MetricName: !Sub 
+        - "dblogalerts-${RdsDbInstance}"
+        - {
+            RdsDbInstance: !Ref DBInstance
+          }
+       
+  FilterFatalsql1Rds:
+    Condition: isMigisSIorPRDAccountisCreateAlarm  
+    Type: AWS::Logs::MetricFilter
+    Properties: 
+      LogGroupName: !Sub  
+      - "/aws/rds/instance/${RdsDbInstance}/error"
+      - {
+          RdsDbInstance: !Ref DBInstance
+        }
+      FilterPattern:  "?\"Severity: 21\" ?\"Severity: 22\" ?\"Severity: 23\" ?\"Severity: 24\""
+      MetricTransformations: 
+      - MetricValue: "1"
+        MetricNamespace: !Ref logMetricNamespace
+        MetricName: !Sub 
+        - "dblogalerts-${RdsDbInstance}"
+        - {
+            RdsDbInstance: !Ref DBInstance
+          }
+
+  #################### END Metric Filters and Metrics ################
+
+  #################### Alarms  #######################################
+ 
+  # Following alarm utilizes all metrics created above for MSSQL error logs based metric
+  DbAlertAlarm:
+    Condition: isMigisSIorPRDAccountisCreateAlarm   
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-MSSQL  # this topic points to DBA emails. 
+#      - !Sub 
+#        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+#        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmDescription: Alarm which triggers when there are errors in database log
+      AlarmName: !Sub 
+      - "RDSdblogalerts-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref DBInstance
+        }
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 1
+      EvaluationPeriods: 1
+      InsufficientDataActions: []
+      MetricName: !Sub 
+      - "dblogalerts-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref DBInstance
+        }      
+      Namespace: !Ref logMetricNamespace
+      Period: 60
+      Statistic: Sum
+      Threshold: 0.0
+      TreatMissingData: notBreaching
+
+  # Following alarm utilizes cloudwatch CPUUtilization metric and triggers when it is greater than threshold
+  CPUUtilizationAlarm:
+    Condition: isMigisSIorPRDAccountisCreateAlarm   
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-MSSQL
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub 
+      - "RDSCPUUtilization-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref DBInstance
+        }
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 5
+      MetricName: CPUUtilization
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: 90
+      TreatMissingData: ignore
+
+
+  # Following alarm utilizes cloudwatch ReadLatency metric and triggers when it is greater than threshold
+  ReadLatencyAlarm:
+    Condition: isMigisSIorPRDAccountisCreateAlarm   
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-MSSQL
+      AlarmName: !Sub 
+      - "RDSReadLatency-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref DBInstance
+        }      
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 5
+      MetricName: ReadLatency
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: 250
+      TreatMissingData: ignore
+
+  # Following alarm utilizes cloudwatch WriteLatency metric and triggers when it is greater than threshold
+  WriteLatencyAlarm:
+    Condition: isMigisSIorPRDAccountisCreateAlarm   
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-MSSQL
+      AlarmName: !Sub 
+      - "RDSWriteLatency-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref DBInstance
+        }            
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 5
+      MetricName: WriteLatency
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: 250
+      TreatMissingData: ignore
+
+  # DbLoadCpu is supposed to be less than 1 + NumCpus. This alarm triggers when Dbload is greater than NumCpus 
+  DBLoadCpuAlarm:
+    Condition: isMigisSIorPRDAccountisCreateAlarm   
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-MSSQL
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub 
+      - "RDSDBLoadCpu-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref DBInstance
+        } 
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 5
+      MetricName: DBLoadCPU
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref DBLoadCpuAlarmTheshold
+      TreatMissingData: ignore
+
+  ## Following alarm utilizes cloudwatch FreeStorageSpace metric. This alarm triggers when FreeStorageSpace is less than 10% of maxallocated
+  FreeStorageSpaceAlarm:
+    Condition: isMigisSIorPRDAccountisCreateAlarm   
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-MSSQL
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub 
+      - "RDSFreeStorageSpace-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref DBInstance
+        }       
+      ComparisonOperator: LessThanOrEqualToThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 5
+      MetricName: FreeStorageSpace
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref FreeStorageSpaceAlarmTheshold  
+      TreatMissingData: ignore
+  
+  # FreeableMemory is supposed to be greater than at least 100MB . This alarm triggers when FreeableMemory is less than Threshold
+  FreeMemoryAlarm:
+    Condition: isMigisSIorPRDAccountisCreateAlarm   
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-MSSQL
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmDescription: Alarm to send alert when free memory is less than 100 MB 
+      AlarmName: !Sub 
+      - "RDSFreeMemory-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref DBInstance
+        }       
+      ComparisonOperator: LessThanOrEqualToThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref DBInstance
+      EvaluationPeriods: 5
+      MetricName: FreeableMemory
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref FreeableMemoryAlarmTheshold  
+      TreatMissingData: ignore
+  
+  #################### End Cloudwatch Alarms  #######################################
+
+
+
+Outputs:
+  SecurityGroup:
+    Description: The RDS Security Group ID
+    Value: !Ref EC2SecurityGroup
+
+  CName:
+    Description: The RDS CName
+    Value: !Ref RouteRecordSet
+
+  DatabaseName:
+    Description: Database Name
+    Value: !Sub 
+      - sql_${Blockcode}_${env}${DBNumber}_${DBNumberSuffix}
+      - {
+        env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+        }
+  Port:
+    Description: DB port Number 
+    Value: !GetAtt DBInstance.Endpoint.Port  
+
+  ReplicaPort:
+    Condition: isReadReplicaEnabled
+    Description: DB port Number 
+    Value: !GetAtt DBInstance.Endpoint.Port  
+
+
+  DatabaseInstanceName:
+    Description: The RDS DB Instance Name
+    Value: !Ref DBInstance
+ 
+  JDBConnectionString:
+    Description: JDBC connection string for the database
+    Value: !Sub 
+      - jdbc:sqlserver://${myendpoint}:${myport}/sql_${Blockcode}_${env}${DBNumber}_${DBNumberSuffix}
+      - {
+        myendpoint: !Ref RouteRecordSet,
+        myport: !GetAtt DBInstance.Endpoint.Port,
+        env: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+        }
+  ReplicaJDBConnectionString:
+    Condition: isReadReplicaEnabled
+    Description: JDBC connection string for the database
+    Value: !Sub 
+      - jdbc:sqlserver://${myendpoint}:${myport}/sql_${Blockcode}_${env}${DBNumber}_${DBNumberSuffix}
+      - {
+        myendpoint: !Ref ReplicaRouteRecordSet,
+        myport: !GetAtt DBInstance.Endpoint.Port,
+        env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+        }
+    Export: 
+     Name: 
+      !Sub ${AWS::StackName}-ReplicaJDBConnectionString

@@ -1,0 +1,387 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating the ssm document for RDS Custom sqlserver instance postconfig.
+Parameters:
+  S3Bucket:
+    Type: String
+    Description: Bucket where postconfig packages are located.
+    Default: "delta-postcfg-artifacts-us-east-1 "
+Resources:
+    RDSCustomPostConfigSSMDocument:
+        Type: AWS::SSM::Document
+        Properties:
+            DocumentType: Command
+            Name: 'rds-custom-sqlserver-postconfig'
+            Content:
+              schemaVersion: '2.2'
+              description: Command Document for installation of Windows Post Config
+              parameters:
+                S3BucketName:
+                  description: Name of S3 bucket
+                  type: String
+                  default: !Sub ${S3Bucket}
+                SNSTopicForPostConfigFailuresWindows:
+                  default: arn:aws:sns:us-east-1:126202423078:PostConfigFailuresWindows
+                  description: The SNS topic to nofify on failure
+                  type: String
+              mainSteps:
+              - inputs:
+                  onFailure: exit
+                  runCommand:
+                  - $MyFile = "C:\Windows\BuildComplete.txt"
+                  - If(Test-Path -Path $MyFile){
+                  - echo "Found BuildComplete.txt file - Exiting Now!"
+                  - exit 0
+                  - "}"
+                  - try {
+                  - $StepName = "Copy Files"
+                  - "$INSTANCE_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/instance-id)"
+                  - "$HostName_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/hostname)"
+                  - Copy-S3Object -BucketName {{S3BucketName}} -Key windows/qualys_installer.zip -LocalFile c:\temp\qualys_installer.zip
+                  - Copy-S3Object -BucketName {{S3BucketName}} -Key windows/crowdstrike_installer.zip -LocalFile c:\temp\crowdstrike_installer.zip
+                  - Copy-S3Object -BucketName {{S3BucketName}} -Key windows/Windows_EC2_Onboarding_API_FINAL.ps1 -LocalFile c:\temp\Windows_EC2_Onboarding_API_FINAL.ps1
+                  - Expand-Archive -LiteralPath c:\temp\crowdstrike_installer.zip -DestinationPath C:\temp\crowdstrike
+                  - Expand-Archive -LiteralPath c:\temp\qualys_installer.zip -DestinationPath C:\temp\qualys
+                  - "}"
+                  - catch {
+                  - echo $_
+                  - $PostConfigTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="postConfig"} | Select -Expand Value
+                  - aws sns publish --topic-arn {{SNSTopicForPostConfigFailuresWindows}} --message \"Windows Instance $INSTANCE_ID failed step $StepName in $PostConfigTag postConfig! $HostName_ID\"
+                  - aws ec2 create-tags --resources $INSTANCE_ID --tags Key=postConfig,Value=$PostConfigTag-FAILED
+                  - exit 99 }
+                name: windows_post_Config
+                action: aws:runPowerShellScript
+                isCritical: true
+                isEnd: false
+              - inputs:
+                  onFailure: exit
+                  runCommand:
+                  - $MyFile = "C:\Windows\BuildComplete.txt"
+                  - If(Test-Path -Path $MyFile){
+                  - echo "Found BuildComplete.txt file - Exiting Now!"
+                  - exit 0
+                  - "}"
+                  - try {
+                  - "$INSTANCE_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/instance-id)"
+                  - "$HostName_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/hostname)"
+                  - $StepName = "Set Time Zone"
+                  - "$tz_map = @{}"
+                  - '$tz_map.add("us-east-2",      "Eastern Standard Time")         # US East (Ohio)'
+                  - '$tz_map.add("us-east-1",      "Eastern Standard Time")         # US East (N.Virginia)'
+                  - '$tz_map.add("us-west-1",      "Pacific Standard Time")         # US West (N.California)'
+                  - '$tz_map.add("us-west-2",      "Pacific Standard Time")         # US West (Oregon)'
+                  - '$tz_map.add("ap-east-1",      "China Standard Time")           # Asia Pacific(Hong Kong)'
+                  - '$tz_map.add("ap-south-1",     "India Standard Time")           # Asia Pacific(Mumbai)'
+                  - '$tz_map.add("ap-northeast-3", "Tokyo Standard Time")           # Asia Pacific(Osaka)'
+                  - '$tz_map.add("ap-northeast-2", "Korea Standard Time")           # Asia Pacific(Seoul)'
+                  - '$tz_map.add("ap-southeast-1", "Singapore Standard Time")       # Asia Pacific(Singapore)'
+                  - '$tz_map.add("ap-southeast-2", "AUS Eastern Standard Time")     # Asia Pacific(Sydney)'
+                  - '$tz_map.add("ap-northeast-1", "Tokyo Standard Time")           # Asia Pacific(Tokyo)'
+                  - '$tz_map.add("ca-central-1",   "Canada Central Standard Time")  # Canada (Central)'
+                  - '$tz_map.add("eu-west-1",      "GMT Standard Time")             # Europe (Ireland)'
+                  - '$tz_map.add("eu-west-2",      "GMT Standard Time")             # Europe (London)'
+                  - '$tz_map.add("eu-west-3",      "Romance Standard Time")         # Europe (Paris)'
+                  - '$tz_map.add("eu-north-1",     "W. Europe Standard Time")       # Europe (Stockholm)'
+                  - '$tz_map.add("me-south-1",     "Arab Standard Time")            # Middle East(Bahrain)'
+                  - '$tz_map.add("sa-east-1",      "Sao Tome Standard Time")        # South America(São Paulo)'
+                  - '$tz_map.add("eu-central-1",   "Central Europe Standard Time")  # Europe (Frankfurt)'
+                  - '$tz_map.add("eu-south-1",     "Central Europe Standard Time")  # Europe (Milan)'
+                  - '$tz_map.add("af-south-1",     "South Africa Standard Time")    # Africa (CapeTown)'
+                  - $my_az = Get-EC2InstanceMetadata -Path "/placement/availability-zone"
+                  - $my_az = $my_az -replace ".$"
+                  - "$current_tz = Get-TimeZone"
+                  - if($tz_map.contains($my_az)) {
+                  - "    if($tz_map[$my_az] -ne $current_tz.id) {"
+                  - '        Write-Host "Changing timezone from $($current_tz.id) to $($tz_map[$my_az])"'
+                  - "        Set-TimeZone -Id $tz_map[$my_az]"
+                  - "    }"
+                  - "} else {"
+                  - '    throw "The availability zone $($my_az) is not in our known map of AZs! Please update the post config logic for this AZ"'
+                  - "}"
+                  - "}"
+                  - catch {
+                  - echo $_
+                  - $PostConfigTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="do-not-delete-rds-custom-sql-rdscustom-test"} | Select -Expand Value
+                  - aws sns publish --topic-arn {{SNSTopicForPostConfigFailuresWindows}} --message \"Windows Instance $INSTANCE_ID failed step $StepName in $PostConfigTag Postconfig! $HostName_ID\"
+                  - aws ec2 create-tags --resources $INSTANCE_ID --tags Key=do-not-delete-rds-custom-sql-rdscustom-test,Value=$PostConfigTag-FAILED
+                  - exit 99 }
+                name: setTimeZone
+                action: aws:runPowerShellScript
+                isCritical: true
+                isEnd: false
+              - inputs:
+                  name: AwsVssComponents
+                  action: Install
+                name: configurePackage
+                action: aws:configurePackage
+                isEnd: false
+              - inputs:
+                  onFailure: exit
+                  runCommand:
+                  - $MyFile = "C:\Windows\BuildComplete.txt"
+                  - If(Test-Path -Path $MyFile){
+                  - echo "Found BuildComplete.txt file - Exiting Now!"
+                  - exit 0
+                  - "}"
+                  - $StepName = "Installing Windows Update"
+                  - New-Item -Path "c:\Windows\system32\WindowsPowerShell\v1.0\Modules" -Name "PSWindowsUpdate"
+                    -ItemType "directory"
+                  - Copy-S3Object -BucketName {{S3BucketName}} -Key windows/pswindowsupdate.2.2.0.2.zip -LocalFile c:\Windows\system32\WindowsPowerShell\v1.0\Modules\PSWindowsUpdate\pswindowsupdate.2.2.0.2.zip
+                  - Expand-Archive -Path c:\Windows\system32\WindowsPowerShell\v1.0\Modules\PSWindowsUpdate\pswindowsupdate.2.2.0.2.zip -DestinationPath c:\Windows\system32\WindowsPowerShell\v1.0\Modules\PSWindowsUpdate
+                  - if ($?) {echo "Success"}
+                  - else {
+                  - echo $_
+                  - "$INSTANCE_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/instance-id)"
+                  - "$HostName_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/hostname)"
+                  - "$IPV4val = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/local-ipv4)"
+                  - $RegN = Get-SSMParameter -name "/delta/vpc/vpcregion" -Select Parameter.Value
+                  - $AccN = Get-SSMParameter -name "/delta/r53/hostedzonename" -Select Parameter.Value
+                  - $EC2Name=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="Name"} | Select -Expand Value
+                  - $PostConfigTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="do-not-delete-rds-custom-sql-rdscustom-test"} | Select -Expand Value
+                  - aws sns publish --topic-arn {{SNSTopicForPostConfigFailuresWindows}} --message "$IPV4val $EC2Name $INSTANCE_ID failed $StepName in postConfig! $AccN $RegN\"
+                  - aws ec2 create-tags --resources $INSTANCE_ID --tags Key=do-not-delete-rds-custom-sql-rdscustom-test,Value=$PostConfigTag-FAILED
+                  - exit 99 }
+                  - echo "Completed $StepName"
+                name: InstallWindowsUpdate
+                action: aws:runPowerShellScript
+                isCritical: true
+                isEnd: false
+              - inputs:
+                  onFailure: exit
+                  runCommand:
+                  - $MyFile = "C:\Windows\BuildComplete.txt"
+                  - $MyFile2 = "C:\Windows\JoinDomainTest.txt"
+                  - If(Test-Path -Path $MyFile){
+                  - echo "Found BuildComplete.txt file - Exiting Now!"
+                  - exit 0
+                  - "}"
+                  - $StepName = "Joining Domain"
+                  - If((Test-Path -Path $MyFile2) -and (Get-WmiObject -Class win32_computersystem).partofdomain -eq $false){
+                  - echo "Found JoinDomainTest.txt file, server did not join the domain - Exiting Now!"
+                  - "$INSTANCE_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/instance-id)"
+                  - "$HostName_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/hostname)"
+                  - "$IPV4val = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/local-ipv4)"
+                  - $EC2Name=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="Name"} | Select -Expand Value
+                  - $RegN = Get-SSMParameter -name "/delta/vpc/vpcregion" -Select Parameter.Value
+                  - $AccN = Get-SSMParameter -name "/delta/r53/hostedzonename" -Select Parameter.Value
+                  - $PostConfigTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="do-not-delete-rds-custom-sql-rdscustom-test"} | Select -Expand Value
+                  - aws sns publish --topic-arn {{SNSTopicForPostConfigFailuresWindows}} --message "$IPV4val $EC2Name $INSTANCE_ID failed $StepName in postConfig! $AccN $RegN\"
+                  - aws ec2 create-tags --resources $INSTANCE_ID --tags Key=do-not-delete-rds-custom-sql-rdscustom-test,Value=$PostConfigTag-FAILED
+                  - exit 99
+                  - "}"
+                  - try {
+                  - "$INSTANCE_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/instance-id)"
+                  - "$HostName_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/hostname)"
+                  - $StepName = "Joining Domain"
+                  - $JoinDomainTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="JoinDomain"} | Select -Expand Value
+                  - 'echo "Join Domain?: " $JoinDomainTag'
+                  - if ((Get-WmiObject -Class win32_computersystem).partofdomain -eq $true){exit 0}
+                  - $Env = Get-SSMParameter -name "/delta/account/environment" -Select 'Parameter.Value'
+                  - Echo $Env
+                  - $orgTenant = Get-SSMParameter -name "/delta/account/orgTenant" -Select 'Parameter.Value'
+                  - Echo $orgTenant
+                  - Set-Content -Path 'C:\Windows\JoinDomainTest.txt' -Value 'AttemptedJoinDomain'
+                  - If ($orgTenant -eq 'Delta'){
+                  - If ($Env -eq 'development'){
+                  - echo "In Non-Prod Domain Join"
+                  - $domjoinpw = Get-SSMParameter -name "/delta/ec2/restricted/domjoin-credentials-dl-nonprd" -Select 'Parameter.Value'
+                  - "$password = $domjoinpw | ConvertTo-SecureString -asPlainText -Force"
+                  - $username = "cfitdelta\svccadjd"
+                  - "$credential = New-Object System.Management.Automation.PSCredential($username,$password)"
+                  - Add-Computer -DomainName "cfitdelta.cfitrl.delta.com" -OUPath "OU=Windows,OU=Servers_Dev,DC=cfitdelta,DC=cfitrl,DC=delta,DC=com" -Credential $credential
+                  - sleep 5
+                  - exit 3010
+                  - "}"
+                  - If ($Env -eq 'systems-integration'){
+                  - echo "In Non-Prod Domain Join"
+                  - $domjoinpw = Get-SSMParameter -name "/delta/ec2/restricted/domjoin-credentials-dl-nonprd" -Select 'Parameter.Value'
+                  - "$password = $domjoinpw | ConvertTo-SecureString -asPlainText -Force"
+                  - $username = "cfitdelta\svccadjd"
+                  - "$credential = New-Object System.Management.Automation.PSCredential($username,$password)"
+                  - Add-Computer -DomainName "cfitdelta.cfitrl.delta.com" -OUPath "OU=Windows,OU=Servers_Si,DC=cfitdelta,DC=cfitrl,DC=delta,DC=com" -Credential $credential
+                  - sleep 5
+                  - exit 3010
+                  - "}"
+                  - If ($Env -eq 'production'){
+                  - echo "In Prod Domain Join"
+                  - $domjoinpw = Get-SSMParameter -name "/delta/ec2/restricted/domjoin-credentials-dl-prd" -Select 'Parameter.Value'
+                  - "$password = $domjoinpw | ConvertTo-SecureString -asPlainText -Force"
+                  - $username = "delta\svccadjd"
+                  - "$credential = New-Object System.Management.Automation.PSCredential($username,$password)"
+                  - Add-Computer -DomainName "delta.rl.delta.com" -OUPath "OU=Windows,OU=Servers_Prod,DC=delta,DC=rl,DC=delta,DC=com" -Credential $credential
+                  - sleep 5
+                  - exit 3010
+                  - "}"
+                  - "}"
+                  - If ($orgTenant -eq '9E'){
+                  - If ($Env -eq 'development'){
+                  - echo "In Non-Prod Domain Join"
+                  - $domjoinpw = Get-SSMParameter -name "/delta/ec2/restricted/domjoin-credentials-9e-prd" -Select 'Parameter.Value'
+                  - "$password = $domjoinpw | ConvertTo-SecureString -asPlainText -Force"
+                  - $username = "CORPORATE\svcismiaadced"
+                  - "$credential = New-Object System.Management.Automation.PSCredential($username,$password)"
+                  - Add-Computer -DomainName "corporate.mem" -OUPath "OU=Windows,OU=Servers_Dev,DC=corporate,DC=mem" -Credential $credential
+                  - sleep 5
+                  - exit 3010
+                  - "}"
+                  - If ($Env -eq 'systems-integration'){
+                  - echo "In Non-Prod Domain Join"
+                  - $domjoinpw = Get-SSMParameter -name "/delta/ec2/restricted/domjoin-credentials-9e-prd" -Select 'Parameter.Value'
+                  - "$password = $domjoinpw | ConvertTo-SecureString -asPlainText -Force"
+                  - $username = "CORPORATE\svcismiaadced"
+                  - "$credential = New-Object System.Management.Automation.PSCredential($username,$password)"
+                  - Add-Computer -DomainName "corporate.mem" -OUPath "OU=Windows,OU=Servers_Si,DC=corporate,DC=mem" -Credential $credential
+                  - sleep 5
+                  - exit 3010
+                  - "}"
+                  - If ($Env -eq 'production'){
+                  - echo "In Prod Domain Join"
+                  - $domjoinpw = Get-SSMParameter -name "/delta/ec2/restricted/domjoin-credentials-9e-prd" -Select 'Parameter.Value'
+                  - "$password = $domjoinpw | ConvertTo-SecureString -asPlainText -Force"
+                  - $username = "CORPORATE\svcismiaadced"
+                  - "$credential = New-Object System.Management.Automation.PSCredential($username,$password)"
+                  - Add-Computer -DomainName "corporate.mem" -OUPath "OU=Windows,OU=Servers_Prod,DC=corporate,DC=mem" -Credential $credential
+                  - sleep 5
+                  - exit 3010
+                  - "}"
+                  - "}"
+                  - If ($orgTenant -eq 'VS'){
+                  - If ($Env -eq 'systems-integration'){
+                  - echo "In Non-Prod Domain Join"
+                  - $domjoinpw = Get-SSMParameter -name "/delta/ec2/restricted/domjoin-credentials-vs-nonprd" -Select 'Parameter.Value'
+                  - "$password = $domjoinpw | ConvertTo-SecureString -asPlainText -Force"
+                  - $username = "si.vad\svcismiaadcad"
+                  - "$credential = New-Object System.Management.Automation.PSCredential($username,$password)"
+                  - Add-Computer -DomainName "si.vad.vs.air4.com" -OUPath "OU=Windows,OU=Servers_Si,DC=si,DC=vad,DC=vs,DC=air4,DC=com"-Credential $credential
+                  - sleep 5
+                  - exit 3010
+                  - "}"
+                  - If ($Env -eq 'production'){
+                  - echo "In Prod Domain Join"
+                  - $domjoinpw = Get-SSMParameter -name "/delta/ec2/restricted/domjoin-credentials-vs-prd" -Select 'Parameter.Value'
+                  - "$password = $domjoinpw | ConvertTo-SecureString -asPlainText -Force"
+                  - $username = "VAD\svcismiaadcad"
+                  - "$credential = New-Object System.Management.Automation.PSCredential($username,$password)"
+                  - Add-Computer -DomainName "vad.vs.air4.com" -OUPath "OU=Windows,OU=Servers_Prod,DC=vad,DC=vs,DC=air4,DC=com"-Credential $credential
+                  - sleep 5
+                  - exit 3010
+                  - "}"
+                  - "}"
+                  - "}"
+                  - catch {
+                  - echo $_
+                  - $PostConfigTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="do-not-delete-rds-custom-sql-rdscustom-test"} | Select -Expand Value
+                  - aws sns publish --topic-arn {{SNSTopicForPostConfigFailuresWindows}} --message "Windows Instance $INSTANCE_ID failed step $StepName in $PostConfigTag Postconfig! $HostName_ID\"
+                  - aws ec2 create-tags --resources $INSTANCE_ID --tags Key=do-not-delete-rds-custom-sql-rdscustom-test,Value=$PostConfigTag-FAILED
+                  - exit 99 }
+                name: JoinDomain
+                action: aws:runPowerShellScript
+                isCritical: true
+                isEnd: false
+              - inputs:
+                  onFailure: exit
+                  runCommand:
+                  - $MyFile = "C:\Windows\BuildComplete.txt"
+                  - If(Test-Path -Path $MyFile){
+                  - echo "Found BuildComplete.txt file - Exiting Now!"
+                  - exit 0
+                  - "}"
+                  - $StepName = "Installing CrowdStrike"
+                  - c:\temp\crowdstrike\crowdstrike_installer.cmd
+                  - if ($?) {echo "Success"}
+                  - else {
+                  - echo $_
+                  - "$INSTANCE_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/instance-id)"
+                  - "$HostName_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/hostname)"
+                  - "$IPV4val = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/local-ipv4)"
+                  - $RegN = Get-SSMParameter -name "/delta/vpc/vpcregion" -Select Parameter.Value
+                  - $AccN = Get-SSMParameter -name "/delta/r53/hostedzonename" -Select Parameter.Value
+                  - $EC2Name=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="Name"} | Select -Expand Value
+                  - $PostConfigTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="do-not-delete-rds-custom-sql-rdscustom-test"} | Select -Expand Value
+                  - aws sns publish --topic-arn {{SNSTopicForPostConfigFailuresWindows}} --message "$IPV4val $EC2Name $INSTANCE_ID failed $StepName in postConfig! $AccN $RegN\"
+                  - aws ec2 create-tags --resources $INSTANCE_ID --tags Key=do-not-delete-rds-custom-sql-rdscustom-test,Value=$PostConfigTag-FAILED
+                  - exit 99 }
+                  - echo "Completed $StepName"
+                name: InstallCrowdStrike
+                action: aws:runPowerShellScript
+                isCritical: true
+                isEnd: false
+              - inputs:
+                  onFailure: exit
+                  runCommand:
+                  - $MyFile = "C:\Windows\BuildComplete.txt"
+                  - If(Test-Path -Path $MyFile){
+                  - echo "Found BuildComplete.txt file - Exiting Now!"
+                  - exit 0
+                  - "}"
+                  - $StepName = "Installing Qualys"
+                  - C:\temp\qualys\qualys_ca_winsvr_installer.cmd
+                  - if ($?) {echo "Success"}
+                  - else {
+                  - echo $_
+                  - "$INSTANCE_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/instance-id)"
+                  - "$HostName_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/hostname)"
+                  - "$IPV4val = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/local-ipv4)"
+                  - $RegN = Get-SSMParameter -name "/delta/vpc/vpcregion" -Select Parameter.Value
+                  - $AccN = Get-SSMParameter -name "/delta/r53/hostedzonename" -Select Parameter.Value
+                  - $EC2Name=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="Name"} | Select -Expand Value
+                  - $PostConfigTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="postConfig"} | Select -Expand Value
+                  - aws sns publish --topic-arn {{SNSTopicForPostConfigFailuresWindows}} --message "$IPV4val $EC2Name $INSTANCE_ID failed $StepName in postConfig! $AccN $RegN\"
+                  - aws ec2 create-tags --resources $INSTANCE_ID --tags Key=postConfig,Value=$PostConfigTag-FAILED
+                  - exit 99 }
+                  - echo "Completed $StepName"
+                name: InstallQualys
+                action: aws:runPowerShellScript
+                isCritical: true
+                isEnd: false
+              - inputs:
+                  onFailure: exit
+                  runCommand:
+                  - $MyFile = "C:\Windows\BuildComplete.txt"
+                  - If(Test-Path -Path $MyFile){
+                  - echo "Found BuildComplete.txt file - Exiting Now!"
+                  - exit 0
+                  - "}"
+                  - $StepName = "Installing CyberArk"
+                  - c:\temp\Windows_EC2_Onboarding_API_FINAL.ps1
+                  - if ($?) {echo "Success"}
+                  - else {
+                  - echo $_
+                  - "$INSTANCE_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/instance-id)"
+                  - "$HostName_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/hostname)"
+                  - "$IPV4val = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/local-ipv4)"
+                  - $RegN = Get-SSMParameter -name "/delta/vpc/vpcregion" -Select Parameter.Value
+                  - $AccN = Get-SSMParameter -name "/delta/r53/hostedzonename" -Select Parameter.Value
+                  - $EC2Name=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="Name"} | Select -Expand Value
+                  - $PostConfigTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="do-not-delete-rds-custom-sql-rdscustom-test"} | Select -Expand Value
+                  - aws sns publish --topic-arn {{SNSTopicForPostConfigFailuresWindows}} --message "$IPV4val $EC2Name $INSTANCE_ID failed $StepName in postConfig! $AccN $RegN\"
+                  - aws ec2 create-tags --resources $INSTANCE_ID --tags Key=do-not-delete-rds-custom-sql-rdscustom-test,Value=$PostConfigTag-FAILED
+                  - exit 99 }
+                  - echo "Completed Installing CyberArk"
+                name: CyberArk
+                action: aws:runPowerShellScript
+                isCritical: true
+                isEnd: false
+              - inputs:
+                  onFailure: exit
+                  runCommand:
+                  - $MyFile = "C:\Windows\BuildComplete.txt"
+                  - If(Test-Path -Path $MyFile){
+                  - echo "Found BuildComplete.txt file - Exiting Now!"
+                  - exit 0
+                  - "}"
+                  - try {
+                  - "$INSTANCE_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/instance-id)"
+                  - "$HostName_ID = (Invoke-RestMethod -Method Get -Uri http://169.254.169.254/latest/meta-data/hostname)"
+                  - $StepName = "CleanUp Temp Dir"
+                  - Remove-Item c:\Temp\* -Recurse -Force
+                  - "}"
+                  - catch {
+                  - echo $_
+                  - $PostConfigTag=Get-EC2Tag -Filter @{Name="resource-id";Value="$INSTANCE_ID"},@{Name="key";Value="do-not-delete-rds-custom-sql-rdscustom-test"} | Select -Expand Value
+                  - aws sns publish --topic-arn {{SNSTopicForPostConfigFailuresWindows}} --message \"Windows Instance $INSTANCE_ID failed step $StepName in $PostConfigTag postConfig! $HostName_ID\"
+                  - aws ec2 create-tags --resources $INSTANCE_ID --tags Key=do-not-delete-rds-custom-sql-rdscustom-test,Value=$PostConfigTag-FAILED
+                  - exit 99 }
+                name: CleanUpTempDir
+                action: aws:runPowerShellScript
+                isCritical: true
+                isEnd: true

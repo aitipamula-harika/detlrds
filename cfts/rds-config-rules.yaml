@@ -1,0 +1,352 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for Deltas RDS Config Rules, Remediation, and SNS Notifications
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: The S3 bucket name containing the python zip file for the custom lambda function.
+    Default: avm-test-lz-artifacts
+
+  S3ObjectName:
+    Type: String
+    Default: rds-custom-config-tls-check.zip
+    Description: name of the file for the custom rds rule.
+
+  StorageEncryptionRemediationState:
+    Type: String
+    Description: is remediation on(true) or off(false).
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  
+  TransitEncryptionRemediationState:
+    Type: String
+    Description: is remediation on(true) or off(false).
+    Default: false
+    AllowedValues:
+      - true
+      - false
+
+  DeletionProtectionRemediationState:
+    Type: String
+    Description: is remediation on(true) or off(false).
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  BackupEnabledRemediationState:
+    Type: String
+    Description: is remediation on(true) or off(false).
+    Default: false
+    AllowedValues:
+      - true
+      - false
+
+Resources:
+  ConfigPermissionToCallLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+          - LambdaRDSEncryptionComplianceCheck
+          - Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "config.amazonaws.com"
+
+  LambdaRDSEncryptionComplianceCheck:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: rds-custom-config-tls-check.lambda_handler
+      Runtime: python3.8
+      Timeout: 60
+      MemorySize: 128
+      Role:
+        Fn::GetAtt:
+          - CustomLambdaExecutionRole
+          - Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref S3ObjectName
+
+  CustomLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service:
+            - "lambda.amazonaws.com"
+          Action:
+          - "sts:AssumeRole"
+      Description: "IAM Role for RDS Custom Config Lambda Function."
+      RoleName: "alf-config-lambda-rds-rule"
+      ManagedPolicyArns:
+          - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+          - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonRDSReadOnlyAccess
+          - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSConfigRole
+
+  ConfigRuleForDeletionProtection:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rds-instance-deletion-protection-enabled-check
+      Description: Checks if an Amazon Relational Database Service (Amazon RDS) cluster has deletion protection enabled. This rule is NON_COMPLIANT if an RDS cluster does not have deletion protection enabled.
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::RDS::DBInstance"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "RDS_INSTANCE_DELETION_PROTECTION_ENABLED"
+
+  ConfigRuleForStorageEncryption:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rds-storage-encrypted-check
+      Description: Checks whether storage encryption is enabled for your RDS DB instances.
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::RDS::DBInstance"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "RDS_STORAGE_ENCRYPTED"
+
+  ConfigRuleForBackupEnabled:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rds-instance-backupn-enabled-check
+      Description: Checks if an Amazon Relational Database Service (Amazon RDS) instance has backup enabled. This rule is NON_COMPLIANT if an RDS Instance does not have backup enabled.
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::RDS::DBInstance"
+      InputParameters: 
+        checkReadReplicas: false
+      Source:
+        Owner: AWS
+        SourceIdentifier: "DB_INSTANCE_BACKUP_ENABLED"
+
+  RDSCustomConfigRule:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rds-encryption-check
+      Description: Checks whether RDS encryption is enabled for your RDS DB instances.
+      Scope:
+        ComplianceResourceTypes:
+            - "AWS::RDS::DBInstance"
+      Source:
+        Owner: "CUSTOM_LAMBDA"
+        SourceDetails:
+          -
+            EventSource: "aws.config"
+            MessageType: "ConfigurationItemChangeNotification"
+        SourceIdentifier: !GetAtt LambdaRDSEncryptionComplianceCheck.Arn
+    DependsOn: ConfigPermissionToCallLambda
+
+  SSMAssumeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service:
+            - "ssm.amazonaws.com"
+          Action:
+          - "sts:AssumeRole"
+      Description: "IAM Role for SSM Automation for RDS config rules remediation"
+      RoleName: "delegate-admin-ssm-automation-rds-config-remediation"
+      ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+          - arn:aws:iam::aws:policy/service-role/AWSConfigRole
+      PermissionsBoundary:
+        Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+
+  EncryptionRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      Automatic: !Ref TransitEncryptionRemediationState
+      ConfigRuleName: !Ref RDSCustomConfigRule
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 30
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMAssumeRole.Arn
+        ResourceID:
+          ResourceValue:
+            Value: RESOURCE_ID
+      TargetId: DL-RDS-delete-instance
+      TargetType: SSM_DOCUMENT
+
+  DeletionProtectionRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      Automatic: !Ref DeletionProtectionRemediationState
+      ConfigRuleName: !Ref ConfigRuleForDeletionProtection
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 30
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMAssumeRole.Arn
+        ResourceID:
+          ResourceValue:
+            Value: RESOURCE_ID
+      TargetId: DL-RDS-delete-instance
+      TargetType: SSM_DOCUMENT
+
+  StorageEncryptionRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      Automatic: !Ref StorageEncryptionRemediationState
+      ConfigRuleName: !Ref ConfigRuleForStorageEncryption
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 30
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMAssumeRole.Arn
+        ResourceID:
+          ResourceValue:
+            Value: RESOURCE_ID
+      TargetId: DL-RDS-delete-instance
+      TargetType: SSM_DOCUMENT
+
+  BackupEnabledRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      Automatic: !Ref BackupEnabledRemediationState
+      ConfigRuleName: !Ref ConfigRuleForBackupEnabled
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 30
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMAssumeRole.Arn
+        ResourceID:
+          ResourceValue:
+            Value: RESOURCE_ID
+      TargetId: DL-RDS-delete-instance
+      TargetType: SSM_DOCUMENT
+
+  RDSConfigGenericComplianceSNSTopic:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: "rds-config-generic-compliance-notifications"
+
+  RDSComplianceGenericEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: rds-config-rule-generic-compliance-change
+      Description: This event gets triggered when an RDS config rules compliance changes
+      State: ENABLED
+      Targets:
+        -
+          Arn: !Ref RDSConfigGenericComplianceSNSTopic
+          Id: !GetAtt RDSConfigGenericComplianceSNSTopic.TopicName
+      EventPattern:
+        source:
+          - aws.config
+        detail-type:
+          - Config Rules Compliance Change
+        detail:
+          messageType:
+            - ComplianceChangeNotification
+          configRuleName:
+            # - !Ref ConfigRuleForMultiAZ
+            - !Ref ConfigRuleForDeletionProtection
+            - !Ref ConfigRuleForStorageEncryption
+            - !Ref RDSCustomConfigRule
+            - !Ref ConfigRuleForBackupEnabled
+      Targets:
+        - Arn: !Ref RDSConfigGenericComplianceSNSTopic
+          Id: SNSNotification
+          InputTransformer:
+            InputPathsMap:
+              awsRegion: "$.detail.awsRegion"
+              resourceId: "$.detail.resourceId"
+              awsAccountId: "$.detail.awsAccountId"
+              compliance: "$.detail.newEvaluationResult.complianceType"
+              rule: "$.detail.configRuleName"
+              time: "$.detail.newEvaluationResult.resultRecordedTime"
+              resourceType: "$.detail.resourceType"
+            InputTemplate: |
+              "On <time> AWS Config rule <rule> evaluated the <resourceType> with Id <resourceId> in the account <awsAccountId> region <awsRegion> as <compliance>."
+
+  # SSMRemediationDocument:
+  #   Type: AWS::SSM::Document
+  #   Properties:
+  #     Name: rds-config-remediation-document
+  #     DocumentType: Automation
+  #     Content:
+  #       description: |-
+  #         # config-remediation-remove-rds-instance
+  #         This automation document is passed a resource id of a non-compliant RDS instance and then deletes the RDS instance.
+  #         ## Automation Steps
+  #         1. Use the resource id of a non-compliant instance to retrieve the db identifier of the RDS instance
+  #         2. Modify the DB Instance to ensure that deletion protection is set to false
+  #         3. Use the DB identifier to delete the non-compliant RDS instance
+  #       schemaVersion: '0.3'
+  #       assumeRole: '{{AutomationAssumeRole}}'
+  #       outputs:
+  #         - DescribeDBInstance.DBInstanceIdentifier
+  #       parameters:
+  #         ResourceID:
+  #           type: String
+  #           description: The Resource ID of the RDS instance to delete
+  #         AutomationAssumeRole:
+  #           type: String
+  #       mainSteps:
+  #         - name: DescribeDBInstance
+  #           action: 'aws:executeAwsApi'
+  #           inputs:
+  #             Service: rds
+  #             Api: DescribeDBInstances
+  #             Filters:
+  #               - Name: dbi-resource-id
+  #                 Values:
+  #                   - '{{ResourceID}}'
+  #           outputs:
+  #             - Name: DBInstanceIdentifier
+  #               Selector: '$.DBInstances[0].DBInstanceIdentifier'
+  #               Type: String
+  #           isEnd: false
+  #         - name: ModifyDBInstance
+  #           action: 'aws:executeAwsApi'
+  #           inputs:
+  #             Service: rds
+  #             Api: ModifyDBInstance
+  #             DBInstanceIdentifier: '{{DescribeDBInstance.DBInstanceIdentifier}}'
+  #             DeletionProtection: false
+  #         - name: DeleteRDSInstance
+  #           action: 'aws:executeAwsApi'
+  #           inputs:
+  #             Service: rds
+  #             Api: DeleteDBInstance
+  #             DBInstanceIdentifier: '{{DescribeDBInstance.DBInstanceIdentifier}}'
+  #             DeleteAutomatedBackups: true
+  #             SkipFinalSnapshot: true
+
+  # MultiAZRemediation:
+  #   Type: AWS::Config::RemediationConfiguration
+  #   Properties:
+  #     Automatic: true
+  #     ConfigRuleName: !Ref ConfigRuleForMultiAZ
+  #     MaximumAutomaticAttempts: 3
+  #     RetryAttemptSeconds: 30
+  #     Parameters:
+  #       AutomationAssumeRole:
+  #         StaticValue:
+  #           Values:
+  #             - !GetAtt SSMAssumeRole.Arn
+  #       ResourceID:
+  #         ResourceValue:
+  #           Value: RESOURCE_ID
+  #     TargetId: !Ref SSMRemediationDocument
+  #     TargetType: SSM_DOCUMENT

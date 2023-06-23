@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for Deltas Deafult RDS Parameter Group for MySQL RDS instances
+
+Resources:
+  mysql:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: Delta Default MySQL Parameter Group
+      Family: mysql8.0
+      Tags:
+        - Key: Name
+          Value: delta-mysql-80
+      Parameters:
+        tls_version: TLSv1.2
+
+  MySQLParameterGroupParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /delta/rds/parametergroup/mysql
+      Type: String
+      Value: !Ref mysql
+      Tier: Standard
+      Description: SSM Parameter for the name of the MySQL RDS Parameter Group that all MySQL RDS instances should use.

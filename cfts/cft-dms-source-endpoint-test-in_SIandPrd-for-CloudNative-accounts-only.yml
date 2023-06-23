@@ -1,0 +1,162 @@
+Parameters:
+  DMSSubnetGroupSubnet1SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: privatesubnet1aid
+  DMSSubnetGroupSubnet2SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the second DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: privatesubnet2aid
+  DMSSubnetGroupSubnet3SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the third DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: privatesubnet3aid
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+  SourceDatabaseEngine:
+   Description: Enter Source database engine. For example Oracle, Sqlserver etc.
+   Type: String
+   AllowedValues: ['oracle','sqlserver','db2 luw','sybase']
+  SourceDBServerName:
+   Description: Database DNS alias/App Friendly Name/Hostname to connect to the source database. This could be local standby or primary database . Ensure that  this is the database that DMS will connect to erform migration.  
+   Type: String
+  SourceDatabaseServiceName: 
+   Description: Enter source  database service name or pluggable dbname for Oracle only . Enter dbname for all other db engines.
+   Type: String
+  SourceASM: 
+   Description: If Source Database is Oracle ..Does Source Oracle database is created using ASM.
+   Type: String
+   AllowedValues: ['Y','N']
+   ConstraintDescription: Must be 'Y' or 'N'
+  SourceDatabaseName: 
+   Description: Enter source Database Instance name  for all other DB Engines and database  name for Oracle.
+   Type: String
+  SourceDatabasePort:
+   Description: Listener port (TCP) to connect to the above Source Database
+   Type: Number
+  SourceDatbaseDMSUserSecretArn:
+   Description: Please enter Secret ARN for dms user 
+   Type: String
+Mappings:
+  EnvironmentMap:
+    sandbox:
+      "abbreviation": "snd"
+    development:
+      "abbreviation": "dev"
+    systems-integration:
+      "abbreviation": "si"
+    production:
+      "abbreviation": "prd"
+  RegionMap:
+    us-east-1:
+      "abbreviation": "NV"
+    us-east-2:
+      "abbreviation": "OH"
+  AZMap:
+    privatesubnet1aid:
+      "az": "us-east-1a"
+    privatesubnet2aid:
+      "az": "us-east-1b"
+    privatesubnet3aid:
+      "az": "us-east-1c"
+    datasubnet1aid:
+      "az": "us-east-1a"
+    datasubnet1bid:
+      "az": "us-east-1f"
+    datasubnet1cid:
+      "az": "us-east-1c"
+Conditions:
+  SourceASMTrue: !Equals
+    - !Ref SourceASM
+    - 'Y'
+Resources: 
+  # The resource below creates an EC2 Security Group which is then used when creating the DMS Replication Instance.
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+     GroupDescription: 'Oracle EC2 Security Group for mig-dev-rep-inst'
+     SecurityGroupIngress:
+      - IpProtocol: tcp
+        Description: This ingress rule allows pl-05a3c87e010904082Opnet to communicate correctly over port 27101
+        SourcePrefixListId: pl-05a3c87e010904082
+        FromPort: !Ref SourceDatabasePort
+        ToPort: !Ref SourceDatabasePort
+     VpcId: '{{resolve:ssm:/delta/vpc/vpcid:1}}'
+     Tags:
+       -
+         Key: "Name"
+         Value: !Sub
+          -  ${reg}-${env}-LA-mig-dev-rep-inst
+          -  {
+             reg:  !FindInMap [RegionMap, !Ref "AWS::Region", "abbreviation"],
+             env:  !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+             }
+          
+
+  # The resource below creates a DB Subnet Group that is used when creating the RDS DB Instance.
+  # The DB Subnet Group utilizes the current accounts subnets which are specified inside SSM parameters.
+  DmsRepSubnetgroup:
+   Type: AWS::DMS::ReplicationSubnetGroup
+   Properties:
+     ReplicationSubnetGroupDescription: DMS Replication Instance Subnet Group
+     SubnetIds:
+       - !Sub '{{resolve:ssm:/delta/vpc/${DMSSubnetGroupSubnet1SSMParameter}:1}}'
+       - !Sub '{{resolve:ssm:/delta/vpc/${DMSSubnetGroupSubnet2SSMParameter}:1}}'
+       - !Sub '{{resolve:ssm:/delta/vpc/${DMSSubnetGroupSubnet3SSMParameter}:1}}'
+  DmsRepInstance:
+   Type: AWS::DMS::ReplicationInstance
+   Properties:
+     ReplicationInstanceClass: dms.c5.xlarge
+     AllocatedStorage: 200
+     EngineVersion: 3.4.5  
+     MultiAZ: false
+     PreferredMaintenanceWindow: wed:02:00-wed:05:00
+     PubliclyAccessible: false
+     AvailabilityZone: us-east-1a
+     ReplicationInstanceIdentifier: rep-test-01 
+     ReplicationSubnetGroupIdentifier: !Ref DmsRepSubnetgroup
+     VpcSecurityGroupIds:
+        - !Ref EC2SecurityGroup
+     Tags:
+        - Key: changeGroup
+          Value: Test
+        - Key: costCenter
+          Value: Test
+        - Key: dataClassification
+          Value: Test
+        - Key: uniqueID
+          Value: 1234
+        - Key: supportGroup
+          Value: test
+  DMSSourceEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointType: source
+      EngineName: !Ref SourceDatabaseEngine
+      DatabaseName: !Ref SourceDatabaseServiceName
+      EndpointIdentifier: Source-ep-test-00
+      ExtraConnectionAttributes: !If 
+        - SourceASMTrue
+        - !Sub useLogMinerReader=N;useBfile=Y;asm_user=dms_user;asm_server=${SourceDBServerName}:${SourceDatabasePort}/+ASM;exposeViews=true;
+        - useLogMinerReader=N;useBfile=Y;exposeViews=true;
+      Password:  !Sub '{{resolve:secretsmanager:${SourceDatbaseDMSUserSecretArn}}}'
+      Port: !Ref SourceDatabasePort 
+      ServerName: !Ref  SourceDBServerName
+      SslMode: none
+      Username: dms_user
+      Tags:
+        - Key: changeGroup
+          Value: Test
+        - Key: costCenter
+          Value: 012345
+        - Key: dataClassification
+          Value: internal
+        - Key: iServerID
+          Value: 12345
+        - Key: supportGroup
+          Value: Test
+        

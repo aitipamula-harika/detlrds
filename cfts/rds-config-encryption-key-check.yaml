@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for Delta's RDS encryption key check Config Rules, Remediation, and SNS Notifications
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: The S3 bucket name containing the python zip file for the custom lambda function.
+    Default: app-services-cft
+  
+  S3ObjectEncryptionKeyCheckName:
+    Type: String
+    Default: DeltaRDSConfigRules/rds-custom-config-encryption-key-check.zip
+    Description: name of the file for the custom rds rule to check encryption Key.
+  
+  EncryptionKeyCheckRemediationState:
+    Type: String
+    Description: is remediation on(true) or off(false).
+    Default: false
+    AllowedValues:
+      - true
+      - false
+
+Resources:    
+  ConfigPermissionToCallEncryptionKeyLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+          - LambdaRDSEncryptionKeyComplianceCheck
+          - Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "config.amazonaws.com"  
+  
+  LambdaRDSEncryptionKeyComplianceCheck:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: rds-custom-config-encryption-key-check.lambda_handler
+      Runtime: python3.8
+      Timeout: 60
+      MemorySize: 128
+      Role:
+        Fn::GetAtt:
+          - CustomLambdaExecutionRole
+          - Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref S3ObjectEncryptionKeyCheckName
+
+  CustomLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service:
+            - "lambda.amazonaws.com"
+          Action:
+          - "sts:AssumeRole"
+      Description: "IAM Role for RDS Custom Config Lambda Function."
+      RoleName: "delegate-admin-config-lambda-rds-kms-role"
+      Policies: 
+        - PolicyName: delegate-admin-config-kms-key-rds-describe
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow      
+                Action:
+                  - kms:ListKeys
+                  - kms:DescribeKey
+                  - rds:DescribeDBInstances
+                  - rds:ListTagsForResource
+                  - config:PutEvaluations
+                Resource: "*"
+      ManagedPolicyArns:
+          - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      PermissionsBoundary:
+       Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+
+  RDSCustomConfigEncryptionKeyRule:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rds-encryption-key-compliance-check
+      Description: Checks whether valid CMK is used for encryption based on dataClassification.
+      Scope:
+        ComplianceResourceTypes:
+            - "AWS::RDS::DBInstance"
+      Source:
+        Owner: "CUSTOM_LAMBDA"
+        SourceDetails:
+          -
+            EventSource: "aws.config"
+            MessageType: "ConfigurationItemChangeNotification"
+        SourceIdentifier: !GetAtt LambdaRDSEncryptionKeyComplianceCheck.Arn
+    DependsOn: ConfigPermissionToCallEncryptionKeyLambda
+  
+  EncryptionKeyRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      Automatic: !Ref EncryptionKeyCheckRemediationState
+      ConfigRuleName: !Ref RDSCustomConfigEncryptionKeyRule
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 30
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/delegate-admin-ssm-automation-rds-config-remediation
+        ResourceID:
+          ResourceValue:
+            Value: RESOURCE_ID
+      TargetId: DL-RDS-delete-instance
+      TargetType: SSM_DOCUMENT
+
+  
+  

@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for Deltas RDS Config Rules, Remediation, and SNS Notifications
+
+Parameters:
+  BackupProtectionRemediationState:
+    Type: String
+    Description: is remediation on(true) or off(false).
+    Default: false
+    AllowedValues:
+      - true
+      - false
+
+Resources:
+  ConfigRuleForBackupEnabled:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rds-instance-backupn-nonrr-enabled-check
+      Description: Checks if an Amazon Relational Database Service (Amazon RDS) instance has backup enabled. This rule is NON_COMPLIANT if an RDS Instance does not have backup protection enabled.
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::RDS::DBInstance"
+      InputParameters: 
+        checkReadReplicas: false
+      Source:
+        Owner: AWS
+        SourceIdentifier: "DB_INSTANCE_BACKUP_ENABLED"
+
+  SSMAssumeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service:
+            - "ssm.amazonaws.com"
+          Action:
+          - "sts:AssumeRole"
+      Description: "IAM Role for SSM Automation for RDS config rules remediation"
+      RoleName: "delegate-admin-ssm-automation-rds-backup-config-remediation"
+      ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+          - arn:aws:iam::aws:policy/service-role/AWSConfigRole
+      PermissionsBoundary:
+        Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+
+  BackupEnabledRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      Automatic: !Ref BackupProtectionRemediationState
+      ConfigRuleName: !Ref ConfigRuleForBackupEnabled
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 30
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMAssumeRole.Arn
+        ResourceID:
+          ResourceValue:
+            Value: RESOURCE_ID
+      TargetId: DL-RDS-delete-instance
+      TargetType: SSM_DOCUMENT
+
+  RDSConfigGenericComplianceSNSTopic:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: "rds-config-generic-compliance-notifications"
+
+  RDSComplianceGenericEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: rds-backup-nonrr-config-rule-generic-compliance-change
+      Description: This event gets triggered when an RDS config rules compliance changes
+      State: ENABLED
+      Targets:
+        -
+          Arn: !Ref RDSConfigGenericComplianceSNSTopic
+          Id: !GetAtt RDSConfigGenericComplianceSNSTopic.TopicName
+      EventPattern:
+        source:
+          - aws.config
+        detail-type:
+          - Config Rules Compliance Change
+        detail:
+          messageType:
+            - ComplianceChangeNotification
+          configRuleName:
+            - !Ref ConfigRuleForBackupEnabled
+      Targets:
+        - Arn: !Ref RDSConfigGenericComplianceSNSTopic
+          Id: SNSNotification
+          InputTransformer:
+            InputPathsMap:
+              awsRegion: "$.detail.awsRegion"
+              resourceId: "$.detail.resourceId"
+              awsAccountId: "$.detail.awsAccountId"
+              compliance: "$.detail.newEvaluationResult.complianceType"
+              rule: "$.detail.configRuleName"
+              time: "$.detail.newEvaluationResult.resultRecordedTime"
+              resourceType: "$.detail.resourceType"
+            InputTemplate: |
+              "On <time> AWS Config rule <rule> evaluated the <resourceType> with Id <resourceId> in the account <awsAccountId> region <awsRegion> as <compliance>."
+

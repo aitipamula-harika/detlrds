@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template to create event rule to schedule the lambda as job to execute sql script
+Metadata:
+    ParameterGroups:
+    - Label:
+        default: 'Lambda Parameters'
+      Parameters:
+      - FunctionName
+      - BucketName
+      - ShellScriptPath
+      - SqlScriptPath
+      - SecretName
+      - ScheduleExpression
+Parameters:
+  FunctionName:
+    Type: String
+    Description: The name of the lambda function
+    Default: rds-oracle-post-script
+  BucketName:
+    Type: String
+    Description: The name of the s3 bucket, to fetch scripts
+    Default: delta-rds-artifacts
+  ShellScriptPath:
+    Type: String
+    Description: The path of the shell script
+    Default: oracle/scripts/SI/post_oracle_script_job.sh
+  SqlScriptPath:
+    Type: String
+    Description: The path of the SQL script
+    Default: oracle/scripts/SI/sql-oracle-script-job.sql
+  SDSScriptsPath:
+    Type: String
+    Description: The path of the SDS partition rotation scripts zip file.
+    Default: oracle/scripts/SI/sds-db-partition-rotation-master-AWS.zip
+  SecretName:
+    Type: String
+    Description: The name of secret managers secret for RDS username and password
+  OracleDBName:
+    Type: String
+    Description: Name of the database to run scripts on.
+    Default: ''
+  OracleDBEndpoint:
+    Type: String
+    Description: Endpoint of the database to run scripts on.
+    Default: ''
+  ScheduleExpression:
+    Type: String
+    Description: The cron expression
+    Default: cron(*/5 * * * ? *)
+Resources:
+  RDSPostLambdaEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: rds-oracle-post-script
+      Description: This event gets triggered periodically
+      State: DISABLED
+      ScheduleExpression: !Ref ScheduleExpression
+      Targets:
+        -
+          Id: rds-oracle-script-executer
+          Arn: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${FunctionName}
+          Input: !Sub |
+            {
+              "RequestType": "Job", 
+              "BucketName": "${BucketName}", 
+              "SecretArn": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretName}", 
+              "ScriptPath": "${ShellScriptPath}", 
+              "SqlScriptPath": "${SqlScriptPath}",
+              "ZipArchivePath": "${SDSScriptsPath}",
+              "DbEndpoint": "${OracleDBEndpoint}",
+              "DbName": "${OracleDBName}"
+            }
+  PermissionForEventsToInvokePostLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FunctionName
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt RDSPostLambdaEventRule.Arn

@@ -1,0 +1,1319 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating an RHEL Base Launch Template and Instance
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'General Parameters'
+      Parameters:
+      - backup
+      - InstanceType
+      - osVersion
+      - EC2IAMInstanceProfileName
+      - ServerType
+      - dbEngine
+      - SubnetSelection
+    - Label:
+        default: 'Application Parameters'
+      Parameters:
+      - ProjectName
+      - blockCode
+      - firstblockCode
+      - appSupportEmail
+#      - appCriticalityTier
+#      - compliance
+      - Environment
+      - orgTenant
+    - Label:
+        default: 'Monitoring Profile Parameter'
+      Parameters:
+      - entMonitoringProfile
+    - Label:
+        default: 'Patching Parameters'
+      Parameters:
+      - OSPatchDay
+      - OSPatchHour
+      - InfraAppPatchDay
+      - InfraAppPatchHour
+      - oobPatchGroup
+    - Label:
+        default: 'Filesystem Sizes'
+      Parameters:
+      - AppsVolumeSize
+      - AppsVolumeType
+      - AppsVolumeIOPS
+      - ProductsVolumeSize
+      - ProductsVolumeType
+      - ProductsVolumeIOPS
+      - LogsVolumeSize
+      - LogsVolumeType
+      - LogsVolumeIOPS
+    - Label:
+        default: 'Sailpoint Integration Parameters'
+      Parameters:
+      - AdminPrimaryOwner
+      - AdminSecondaryOwners
+#      - ApplicationPrimaryOwner
+#      - ApplicationSecondaryOwners
+      - gdprIndicator
+      - piiIndicator
+    - Label:
+        default: 'General Tagging Parameters'
+      Parameters:
+      - costCenter
+      - uniqueId
+      - dataClassification
+      - supportGroup
+      - changeGroup
+      - drTier
+      - pciIndicator
+      - phiIndicator
+      - cuiIndicator
+      - soxIndicator
+    - Label:
+        default: 'DB2 Related Parameters'
+      Parameters:
+      - Db2InstallArtifactsS3Bucket
+      - Db2InstallerBinaryFileS3KeyName
+      - Db2InstallerBinaryFileOnS3
+      - Db2InstallerLicenseFileS3KeyName
+      - Db2InstallerLicenseFileName
+      - Db2InstallerResponseFileS3KeyName
+      - Db2InstallerResponseFileName
+      - Db2ScriptsFolderS3KeyName
+      - Db2ScriptsFolderLocalDownloadPath
+      - Db2TemplatesFolderS3KeyName
+      - Db2TemplatesFolderLocalDownloadPath
+      - Db2DownloadDir
+      - Db2Installdir
+      - Db2Tmpdir
+      - Db2InstanceHomedir
+      - Db2FenceidHomedir
+      - Db2AdmGroup
+      - Db2AdmUser
+      - Db2PortNum
+      - AdminMountPointPath
+      - AdminVolumeSize
+      - AdminVolumeType
+      - AdminVolumeIOPS
+      - DiagMountPointPath
+      - DiagVolumeSize
+      - DiagVolumeType
+      - DiagVolumeIOPS
+      - DataMountPointPath
+      - DataVolumeSize
+      - DataVolumeType
+      - DataVolumeIOPS
+      - BackupMountPointPath
+      - BackupVolumeSize
+      - BackupVolumeType
+      - BackupVolumeIOPS
+      - DBNumber
+      - CodePage
+      - Territory
+      - DatabaseTimezone
+      - LogRetention
+
+Parameters:
+  backup:
+    Type: String
+    Description: Refers to whether data protection is required or not required.
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+  InstanceType:
+    Type: String
+    Description: Specify the instance type you would like to use in your launch templates
+    Default: t3.large
+  osVersion:
+    Type: String
+    Description: Select the RHEL OS Version you would like to use
+    AllowedValues: ['rhel-7x', 'rhel-8x']
+    Default: rhel-8x
+  blockCode:
+    Type: String
+    Description: Enter the blockCode for the project
+    Default: iimdbadbtl
+  productBlockCode:
+    Type: String
+    Description: Enter the blockCode for the product
+    Default: iimdbadbtl
+  firstblockCode:
+    Type: String
+    Description: A flag indicating whether or not this is the first stack which uses the blockcode or not
+    AllowedValues: ['true', 'false']
+    Default: "false"
+  appSupportEmail:
+    Type: String
+    Description: Enter a tag value for application support group email ID
+    Default: "ITxDB2luwSupport@delta.com"
+  ProjectName:
+    Type: String
+    Description: Enter the name for the project
+    Default: ProjectX
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+  orgTenant:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/orgTenant:1
+  EC2IAMInstanceProfileName:
+    Type: String
+    Description: The Name of the IAM Instance Profile that should be used when creating the EC2 Launch Template
+    Default: DeltaMigrationEC2Role
+  ServerType:
+    Type: String
+    Default: database
+    AllowedValues:
+      - application
+      - database
+      - dc
+      - citrix
+      - web
+  dbEngine:
+    Type: String
+    AllowedValues: ['oracle19','postgres13','db2luw11','dbserver-oracle19','dbserver-sqlserver2019std','dbserver-sqlserver2019ee','dbserver-db2luw11']
+    Description: Please provide the Database engine name and version details
+    Default: "dbserver-db2luw11"
+  entMonitoringProfile:
+    Type: String
+    Default: BaseOSCustom
+    AllowedValues:
+      - NoMonitoring
+      - BaseOS
+      - BaseOSInfraApp
+      - BaseOSAPM
+      - BaseOSAPMInfraApp
+      - BaseOSLoggingAnalytics
+      - BaseOSAPMLoggingAnalytics
+      - BaseOSAPMInfraAppLoggingAnalytics
+      - BaseOSLogging
+      - BaseOSCustom
+
+  OSPatchDay:
+    Type: String
+    Description: The day that you would like the OS on this instance patched on.  Note that non-prd instances will get patched during the 1st week of the 14-day patch cycle whereas prd instances will get patched in the 2nd week of the 14-day patch cycle.
+    AllowedValues: ['tue','wed','thu','fri']
+    Default: "tue"
+  OSPatchHour:
+    Type: String
+    Description: The hour (2 digit) that you would like the OS for this instance patched on.
+    AllowedValues: ['01', '03','19','22']
+    Default: "01"
+  InfraAppPatchDay:
+    Type: String
+    Description: The day that you would like WAS patched on.  Note that non-prd instances will get patched during the 1st week of the 14-day patch cycle whereas prd instances will get patched in the 2nd week of the 14-day patch cycle.
+    AllowedValues: ['tue','wed','thu','fri']
+    Default: "tue"
+  InfraAppPatchHour:
+    Type: String
+    Description: The hour (2 digit) that you would like WAS patched on.
+    AllowedValues: ['01', '03', '19', '22']
+    Default: "22"
+  oobPatchGroup:
+    Type: String
+    Description: The Out of Band (OOB) patch schedule you would like to use for this instance.  Note that this only applies to production instances.
+    AllowedValues: ['dev-day-1-1800', 'si-day-2-1800','prd-day-3-2000','prd-day-4-2200','prd-day-5-2400','prd-day-6-0200','prd-day-7-0400']
+    Default: "dev-day-1-1800"
+
+  AppsVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the apps volume
+    Default: 50
+  AppsVolumeType:
+    Type: String
+    Description: Enter the volume type for the apps volume
+    AllowedValues: ["gp3","io1"]
+    Default: "gp3"
+  AppsVolumeIOPS:
+    Type: Number
+    Description: Enter the volume IOPS for the apps volume. (Applicable only if volume type selected is io1. Otherwise ignored.)
+    Default: 50
+  ProductsVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the products volume
+    Default: 50
+  ProductsVolumeType:
+    Type: String
+    Description: Enter the volume type for the Products volume
+    AllowedValues: ["gp3","io1"]
+    Default: "gp3"
+  ProductsVolumeIOPS:
+    Type: Number
+    Description: Enter the volume IOPS for the Products volume. (Applicable only if volume type selected is io1. Otherwise ignored.)
+    Default: 50
+  LogsVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the logs volume
+    Default: 50
+  LogsVolumeType:
+    Type: String
+    Description: Enter the volume type for the Logs volume
+    AllowedValues: ["gp3","io1"]
+    Default: "gp3"
+  LogsVolumeIOPS:
+    Type: Number
+    Description: Enter the volume IOPS for the Logs volume. (Applicable only if volume type selected is io1. Otherwise ignored.)
+    Default: 50
+  AdminVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the admin volume
+    Default: 50
+  AdminVolumeType:
+    Type: String
+    Description: Enter the volume type for the Admin volume
+    AllowedValues: ["gp3","io1"]
+    Default: "gp3"
+  AdminVolumeIOPS:
+    Type: Number
+    Description: Enter the volume IOPS for the Admin volume. (Applicable only if volume type selected is io1. Otherwise ignored.)
+    Default: 50
+  DiagVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the diag volume
+    Default: 100
+  DiagVolumeType:
+    Type: String
+    Description: Enter the volume type for the Diag volume
+    AllowedValues: ["gp3","io1"]
+    Default: "gp3"
+  DiagVolumeIOPS:
+    Type: Number
+    Description: Enter the volume IOPS for the Diag volume. (Applicable only if volume type selected is io1. Otherwise ignored.)
+    Default: 50
+  DataVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the data volume
+    Default: 250
+  DataVolumeType:
+    Type: String
+    Description: Enter the volume type for the Data volume
+    AllowedValues: ["gp3","io1"]
+    Default: "gp3"
+  DataVolumeIOPS:
+    Type: Number
+    Description: Enter the volume IOPS for the Data volume. (Applicable only if volume type selected is io1. Otherwise ignored.)
+    Default: 50
+  BackupVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the backup volume
+    Default: 500
+  BackupVolumeType:
+    Type: String
+    Description: Enter the volume type for the Backup volume
+    AllowedValues: ["gp3","io1"]
+    Default: "gp3"
+  BackupVolumeIOPS:
+    Type: Number
+    Description: Enter the volume IOPS for the Backup volume. (Applicable only if volume type selected is io1. Otherwise ignored.)
+    Default: 50
+
+  SubnetSelection:
+    Type: String
+    Description: Please select a subnect in which to create your instance
+    AllowedValues: ['webappsubnet1aid', 'webappsubnet1bid','webappsubnet1cid','webappsubnet2aid', 'webappsubnet2bid','webappsubnet2cid','privatesubnet1aid','privatesubnet2aid','datasubnet1aid','datasubnet1bid','datasubnet1cid','datasubnet1did']
+    Default: "privatesubnet1aid"
+  #Change default to datasubnet1aid
+  PostConfigType:
+    Type: String
+    AllowedValues: ['', '-TEST']
+    Default: ''
+
+  # SAILPOINT PARAMETERS
+  AdminPrimaryOwner:
+    Type: String
+    Description: Primary owner user id (6 digit) that should be set on the Admin AD group which sailpoint creates
+    Default: "542681"
+  AdminSecondaryOwners:
+    Type: String
+    Description: Comma delimited list of secondary owner user ids (6 digit) that should be set on the Admin AD group which sailpoint creates
+    Default: "162563"
+  gdprIndicator:
+    Type: String
+    Description: Refers to the general data protection regulation category of information
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  piiIndicator:
+    Type: String
+    Description: Refers to any personal identifiable information related to an individual.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  # GENERAL TAGGING PARAMETERS
+  costCenter:
+    Description: The value for the costCenter tag.
+    AllowedPattern: ^C[0-9]{4}ATG$
+    Type: String
+    Default: "C8110ATG"
+  uniqueId:
+    Description: The unique ideentifier for the instance.
+    AllowedPattern: ^(D|A)[0-9]{7}$
+    Type: String
+    Default: "D1234567"
+  dataClassification:
+    Description: The value for the dataClassificationParameter tag
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: internal
+  supportGroup:
+    Description: The value for the supportGroup tag.
+    AllowedPattern: ^[A-Za-z0-9_ -]+$
+    Type: String
+    Default: PSS-DBADB2LUWSupport
+  changeGroup:
+    Description: Identifies the ServiceNow group of the application owner who owns the AWS resource. The tag value needs to be an exact match of the ServiceNow group.
+    AllowedPattern: ^[A-Za-z0-9_ -]+$
+    Type: String
+    Default: "PSS-DBADB2LUWSupport"
+  drTier:
+    Type: String
+    Description: A tier designation, which defines the chronological order of recovery for an application during an IT Disaster event.
+    AllowedValues: ['MV', 'MC', 'BC', 'BE', 'B']
+    Default: 'BC'
+  phiIndicator:
+    Type: String
+    Description: Refers to any health information (medical and insurance) related to an individual.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  pciIndicator:
+    Type: String
+    Description: Refers to the category used for credit cardholder data and sensitive authentication data.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  soxIndicator:
+    Type: String
+    Description: Refers to any information that has a direct and material impact on Delta’s financial reporting.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  cuiIndicator:
+    Type: String
+    Description: Refers to the category of unclassified information within the U.S. Federal government. Confidential.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    
+  #DB2 related params
+  Db2InstallArtifactsS3Bucket:
+    Type: String
+    Description: S3 Bucket name where DB2 install related artifacts are stored.
+    Default: 'delta-postcfg-artifacts-us-east-1'
+  Db2InstallerBinaryFileS3KeyName:
+    Type: String
+    Description: S3 Key path where DB2 installer binary is located
+    Default: 'database/software-repository/db2/db2_11.5.6.13320'
+  Db2InstallerBinaryFileOnS3:
+    Type: String
+    Description: DB2 installer binary file name on S3
+    Default: 'special_13320_v11.5.6_linuxx64_universal_fixpack.tar.gz'
+  Db2InstallerLicenseFileS3KeyName:
+    Type: String
+    Description: S3 Key path where DB2 license file is located
+    Default: 'database/software-repository/db2/db2_11.5.6.13320'
+  Db2InstallerLicenseFileName:
+    Type: String
+    Description: DB2 license file name
+    Default: 'db2aese_c.lic'
+  Db2InstallerResponseFileS3KeyName:
+    Type: String
+    Description: S3 Key path where DB2 response file is located
+    Default: 'database/software-repository/db2/db2_11.5.6.13320'
+  Db2InstallerResponseFileName:
+    Type: String
+    Description: DB2 response file name on S3
+    Default: 'db2_install.rsp'
+  Db2DownloadDir:
+    Type: String
+    Description: Local directory path where DB2 install related artifacts will be downloaded
+    Default: '/products/software/udb/download'
+  Db2Installdir:
+    Type: String
+    Description: Local directory path where DB2 will be installed
+    Default: '/products/database/ibm/db2/v11.5.6.13320'
+  Db2Tmpdir:
+    Type: String
+    Description: Local DB2 temp directory
+    Default: '/products/tmp'
+  Db2AdmGroup:
+    Type: String
+    Description: DB2 Admin Group
+    Default: 'daldba'
+  Db2AdmUser:
+    Type: String
+    Description: DB2 Admin User
+    Default: 'daldba'
+  Db2PortNum:
+    Type: String
+    Description: DB2 Port Number
+    Default: '50100'
+  Db2InstanceHomedir:
+    Type: String
+    Description: DB2 instance home directory
+    Default: '/dvl/elpmud01/admin'
+  Db2FenceidHomedir:
+    Type: String
+    Description: DB2 Fence Id home directory. (FENCEID will be appended to the path specified)
+    Default: '/dvl'
+  AdminMountPointPath:
+    Type: String
+    Description: Mount point path for Admin
+    Default: '/dvl/elpmud01/admin'
+  DiagMountPointPath:
+    Type: String
+    Description: Mount point path for Diag
+    Default: '/dvl/elpmud01/diag'
+  DataMountPointPath:
+    Type: String
+    Description: Mount point path for Data
+    Default: '/dvl/elpmud01/NODE0000'
+  BackupMountPointPath:
+    Type: String
+    Description: Mount point path for Backup
+    Default: '/dvl/elpmud01/backup'
+  Db2ScriptsFolderS3KeyName:
+    Type: String
+    Description: S3 Key path where DB2 post scripts are located
+    Default: 'database/scripts/db2-on-ec2-scripts/scripts'
+  Db2ScriptsFolderLocalDownloadPath:
+    Type: String
+    Description: Local path where DB2 post scripts are downloaded
+    Default: '/products/daldba/scripts/'
+  Db2TemplatesFolderS3KeyName:
+    Type: String
+    Description: S3 Key path where DB2 post templates are located
+    Default: 'database/scripts/db2-on-ec2-scripts/templates'
+  Db2TemplatesFolderLocalDownloadPath:
+    Type: String
+    Description: Local path where DB2 post templates are downloaded
+    Default: '/products/daldba/templates/'
+
+  DeltaPrivateNetworkPrefixesListId:
+    Type: String
+    Description: Prefixes List Id (Important one is Delta Private Network Prefix List Id)
+    Default: "pl-05a3c87e010904082"
+
+  ApplicationSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Application security group Ids
+
+  DBNumber:
+    Type: String
+    Description: Database Number
+    AllowedPattern: ^[0-9]{2}$
+    Default: '01'
+  CodePage:
+    Type: String
+    Description: Database Code Page
+    AllowedValues: ["UTF-8","ISO8859-1","ISO8859-15","IBM-850"]
+    Default: 'UTF-8'
+  Territory:
+    Type: String
+    Description: Database Territory
+    AllowedValues: ["US","CA","FR","ES","GB"]
+    Default: 'US'
+  DatabaseTimezone:
+    Description: This is Database Timezone value. For migrate ensure this is same as the Source databases. EST- America/New_York, MST-America/Denver, CST- America/Chicago , PST- America/Los_Angeles
+    Type: String
+    Default: 'America/Chicago'
+    AllowedValues: ['America/New_York','America/Chicago','America/Denver','America/Los_Angeles','UTC']
+  LogRetention:
+    Type: String
+    Description: The length of time (in days) that you wish CloudWatch to retain the DB2 logs for.
+    Default: "60"
+    AllowedValues: [1,3,5,7,14,30,60,90,120,150,180,365,400,545,731,1827,3653]
+
+
+Mappings:
+  DataClassificationMap:
+    "internal":
+      "SailpointDataClassification": "Internal"
+    "public":
+      "SailpointDataClassification": "Public"
+    "confidential":
+      "SailpointDataClassification": "Confidential"
+    "restricted":
+      "SailpointDataClassification": "Restricted"
+  EnvironmentMap:
+    sandbox:
+      "singleAbbreviation": "l"
+      "abbreviation": "sbx"
+      "patchabbreviation": "sbx"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "dev-day-1-1800"
+    development:
+      "singleAbbreviation": "d"
+      "abbreviation": "dev"
+      "patchabbreviation": "dev"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "dev-day-1-1800"
+    systems-integration:
+      "singleAbbreviation": "i"
+      "abbreviation": "si"
+      "patchabbreviation": "si"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "si-day-2-1800"
+    production:
+      "singleAbbreviation": "p"
+      "abbreviation": "prd"
+      "patchabbreviation": "prd"
+      "mainCategory": "prd"
+      "oobPatchGroup": "get-from-parameters"
+    aws-central-services:
+      "singleAbbreviation": "p"
+      "abbreviation": "prd"
+      "mainCategory": "prd"
+      "patchabbreviation": "prd"
+      "oobPatchGroup": "get-from-parameters"
+  RegionMap:
+    us-east-1:
+      "abbreviation": "NV"
+    us-east-2:
+      "abbreviation": "OH"
+
+  AirlineMap:
+    Delta:
+      "nonprdCommonSvcs": "148569397242"
+      "prdCommonSvcs": "094835659498"
+      "prdAD": "DELTA.RL.Delta.com"
+      "nonprdAD": "DELTA.RL.Delta.com"
+    9E:
+      "nonprdCommonSvcs": "274033902623"
+      "prdCommonSvcs": "874745898943"
+      "prdAD": "CORPORATE.mem"
+      "nonprdAD": "CORPORATE.mem"
+    VS:
+      "nonprdCommonSvcs": "881380321370"
+      "prdCommonSvcs": "005091512857"
+      "prdAD": "VAD.VS.AIR4.com"
+      "nonprdAD": "VAD.VS.AIR4.com"
+
+  # CodePageMap:
+  #   UTF-8:
+  #     "codepagevalue": "1208"
+  #   ISO8859-Latin-1:
+  #     "codepagevalue": "819"
+  #   ISO8859-15-Latin-15:
+  #     "codepagevalue": "923"
+  
+  # TerritoryMap:
+  #   en-US-English-US:
+  #     "territoryvalue": "01"
+  #   fr-CA-French-Canadian:
+  #     "territoryvalue": "02"
+  #   fr-FR-France:
+  #     "territoryvalue": "33"
+  #   ca-ES-Spanish:
+  #     "territoryvalue": "34"
+  #   en-GB-English-UK:
+  #    "territoryvalue": "44"
+
+Conditions:
+  IsFirstBlockCode: !Equals
+    - !Ref firstblockCode
+    - 'true'
+  IsProductionAccount: !Equals
+    - !Ref Environment
+    - 'production'
+  IsNotDevAccount:
+    !Not [!Equals [!Ref Environment, development]]
+  
+  IsdataClassificationInternalOrConfidential: !Or [!Equals [!Ref dataClassification, 'internal'], !Equals [!Ref dataClassification, 'confidential']]
+
+Resources:
+  BaseLaunchTemplate:
+    DependsOn: EC2SailpointInvocation
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${ProjectName}-base-${osVersion}
+      LaunchTemplateData:
+        ImageId: !Sub '{{resolve:ssm:/delta/ec2/ami/${osVersion}/${AWS::Region}/latest:1}}'
+        InstanceType: !Ref InstanceType
+        DisableApiTermination: true
+        Monitoring:
+          Enabled: true
+        IamInstanceProfile:
+          Name: !Ref EC2IAMInstanceProfileName
+        BlockDeviceMappings:
+          - Ebs:
+              VolumeSize: !Ref AppsVolumeSize
+              VolumeType: !Ref AppsVolumeType
+              Iops:
+                !If 
+                  - IsNotDevAccount
+                  - !Ref AppsVolumeIOPS
+                  - !Ref "AWS::NoValue"
+              DeleteOnTermination: false
+              Encrypted: true
+              KmsKeyId: 
+                !If 
+                  - IsdataClassificationInternalOrConfidential
+                  - !GetAtt CMKForDatabaseVolumeEncryption.Outputs.CMKARN
+                  - !Ref "AWS::NoValue"
+            DeviceName: /dev/sdc
+
+          - Ebs:
+              VolumeSize: !Ref ProductsVolumeSize
+              VolumeType: !Ref ProductsVolumeType              
+              Iops:
+                !If 
+                  - IsNotDevAccount
+                  - !Ref ProductsVolumeIOPS
+                  - !Ref "AWS::NoValue"
+              DeleteOnTermination: false
+              Encrypted: true
+              KmsKeyId: 
+                !If 
+                  - IsdataClassificationInternalOrConfidential
+                  - !GetAtt CMKForDatabaseVolumeEncryption.Outputs.CMKARN
+                  - !Ref "AWS::NoValue"
+            DeviceName: /dev/sdd
+          - Ebs:
+              VolumeSize: !Ref LogsVolumeSize
+              VolumeType: !Ref LogsVolumeType
+              Iops:
+                !If 
+                  - IsNotDevAccount
+                  - !Ref LogsVolumeIOPS
+                  - !Ref "AWS::NoValue"
+              DeleteOnTermination: false
+              Encrypted: true
+              KmsKeyId: 
+                !If 
+                  - IsdataClassificationInternalOrConfidential
+                  - !GetAtt CMKForDatabaseVolumeEncryption.Outputs.CMKARN
+                  - !Ref "AWS::NoValue"
+            DeviceName: /dev/sde
+          - Ebs:
+              VolumeSize: !Ref AdminVolumeSize
+              VolumeType: !Ref AdminVolumeType
+              Iops:
+                !If 
+                  - IsNotDevAccount
+                  - !Ref AdminVolumeIOPS
+                  - !Ref "AWS::NoValue"
+              DeleteOnTermination: false
+              Encrypted: true
+              KmsKeyId: 
+                !If 
+                  - IsdataClassificationInternalOrConfidential
+                  - !GetAtt CMKForDatabaseVolumeEncryption.Outputs.CMKARN
+                  - !Ref "AWS::NoValue"
+            DeviceName: /dev/sdf
+          - Ebs:
+              VolumeSize: !Ref DiagVolumeSize
+              VolumeType: !Ref DiagVolumeType
+              Iops:
+                !If 
+                  - IsNotDevAccount
+                  - !Ref DiagVolumeIOPS
+                  - !Ref "AWS::NoValue"
+              DeleteOnTermination: false
+              Encrypted: true
+              KmsKeyId: 
+                !If 
+                  - IsdataClassificationInternalOrConfidential
+                  - !GetAtt CMKForDatabaseVolumeEncryption.Outputs.CMKARN
+                  - !Ref "AWS::NoValue"
+            DeviceName: /dev/sdg
+          - Ebs:
+              VolumeSize: !Ref DataVolumeSize
+              VolumeType: !Ref DataVolumeType              
+              Iops:
+                !If 
+                  - IsNotDevAccount
+                  - !Ref DataVolumeIOPS
+                  - !Ref "AWS::NoValue"
+              DeleteOnTermination: false
+              Encrypted: true
+              KmsKeyId: 
+                !If 
+                  - IsdataClassificationInternalOrConfidential
+                  - !GetAtt CMKForDatabaseVolumeEncryption.Outputs.CMKARN
+                  - !Ref "AWS::NoValue"
+            DeviceName: /dev/sdh
+          - Ebs:
+              VolumeSize: !Ref BackupVolumeSize
+              VolumeType: !Ref BackupVolumeType              
+              Iops:
+                !If 
+                  - IsNotDevAccount
+                  - !Ref BackupVolumeIOPS
+                  - !Ref "AWS::NoValue"
+              DeleteOnTermination: false
+              Encrypted: true
+              KmsKeyId: 
+                !If 
+                  - IsdataClassificationInternalOrConfidential
+                  - !GetAtt CMKForDatabaseVolumeEncryption.Outputs.CMKARN
+                  - !Ref "AWS::NoValue"
+            DeviceName: /dev/sdi
+
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            SubnetId: !Sub '{{resolve:ssm:/delta/vpc/${SubnetSelection}:1}}'
+            Groups:
+              - "{{resolve:ssm:/delta/ec2/infrastructure-sg-id:1}}"
+              - !GetAtt InstanceSecurityGroup.GroupId
+        TagSpecifications:
+          - ResourceType: volume
+            Tags:
+              - Key: costCenter
+                Value: !Ref costCenter
+              - Key: uniqueId
+                Value: !Ref uniqueId
+              - Key: blockCode
+                Value:
+                  'Fn::Transform':
+                    Name: 'String'
+                    Parameters:
+                      InputString: !Ref blockCode
+                      Operation: Upper
+              - Key: supportGroup
+                Value: !Ref supportGroup
+              - Key: changeGroup
+                Value: !Ref changeGroup
+              - Key: drTier
+                Value: !Ref drTier
+              - Key: dataClassification
+                Value: !Ref dataClassification
+              - Key: pciIndicator
+                Value: !Ref pciIndicator
+              - Key: soxIndicator
+                Value: !Ref soxIndicator
+              - Key: cuiIndicator
+                Value: !Ref cuiIndicator
+              - Key: phiIndicator
+                Value: !Ref phiIndicator
+              - Key: backup
+                Value: !Ref backup
+  BaseRhelInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: true
+      Monitoring: true
+      LaunchTemplate:
+        LaunchTemplateId:  !Ref BaseLaunchTemplate
+        Version: "1"
+      Tags:
+        - Key: costCenter
+          Value: !Ref costCenter
+        - Key: uniqueId
+          Value: !Ref uniqueId
+        - Key: drTier
+          Value: !Ref drTier
+        - Key: dataClassification
+          Value: !Ref dataClassification
+        - Key: supportGroup
+          Value: !Ref supportGroup
+        - Key: changeGroup
+          Value: !Ref changeGroup
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+        - Key: dbEngine
+          Value: !Ref dbEngine
+        - Key: postConfig
+          Value: !Sub RHEL-BASE${PostConfigType}
+        - Key: osVersion
+          Value: !Ref osVersion
+        - Key: entMonitoringProfile
+          Value: !Ref entMonitoringProfile
+        - Key: Name
+          Value: !GetAtt EC2NamingInvocation.name
+        - Key: alias
+          Value: !Sub
+            - ${prefix}.${hostedzonename}
+            - {
+                prefix: !GetAtt EC2NamingInvocation.name,
+                hostedzonename: '{{resolve:ssm:/delta/r53/hostedzonename:1}}',
+              }
+        - Key: Environment
+          Value: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref blockCode
+                 Operation: Upper
+        - Key: osPatchGroup
+          Value: !Sub
+            - os-rhel-${OSPatchEnvironment}-${OSPatchWeek}-${OSPatchDay}-${OSPatchHour}00
+            - {
+              OSPatchEnvironment: !FindInMap [EnvironmentMap, !Ref Environment, "patchabbreviation"],
+              OSPatchWeek: !If [IsProductionAccount, 'wk2', 'wk1']
+              }
+        - Key: infraAppPatchGroup
+          Value: !Sub
+            - product-rhel-${InfraAppPatchEnvironment}-${InfraAppPatchWeek}-${InfraAppPatchDay}-${InfraAppPatchHour}00
+            - {
+              InfraAppPatchEnvironment: !FindInMap [EnvironmentMap, !Ref Environment, "patchabbreviation"],
+              InfraAppPatchWeek: !If [IsProductionAccount, 'wk2', 'wk1']
+              }
+        - Key: oobPatchGroup
+          Value: !If
+            - IsProductionAccount
+            - !Ref oobPatchGroup
+            - !FindInMap [EnvironmentMap, !Ref Environment, "oobPatchGroup"]
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+
+      #
+      # Uncomment the below UserData section if custom filesystem is needed for COTS application.
+      #    Note: the DeviceName (/dev/sdf in example below) comes from Ebs section of launch template above.
+      #
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          /usr/local/bin/delta-add-new-ebs-filesystem.sh /dev/sdf ${AdminMountPointPath}
+          /usr/local/bin/delta-add-new-ebs-filesystem.sh /dev/sdg ${DiagMountPointPath}
+          /usr/local/bin/delta-add-new-ebs-filesystem.sh /dev/sdh ${DataMountPointPath}
+          /usr/local/bin/delta-add-new-ebs-filesystem.sh /dev/sdi ${BackupMountPointPath}
+  EC2RuntimeRole:
+    Condition: IsFirstBlockCode
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join [ "-", ['delegate-admin', !Ref blockCode]]
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'ec2.amazonaws.com'
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: "SsmAllowSendCommandViaBlockCode"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - ssm:SendCommand
+              Resource:
+                - !Sub "arn:aws:ec2:*:${AWS::AccountId}:instance/*"
+                - !Sub "arn:aws:ssm:*:*:document/*"
+              Condition:
+                ForAllValues:StringEquals:
+                  aws:ResourceTag/blockCode: !Ref blockCode
+        - PolicyName: "SsmAllowPolicyForRuntimeEC2"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - ssm:DescribeAssociation
+              - ssm:GetDeployablePatchSnapshotForInstance
+              - ssm:GetDocument
+              - ssm:DescribeDocument
+              - ssm:GetManifest
+              - ssm:GetParameter
+              - ssm:GetParameters
+              - ssm:ListAssociations
+              - ssm:ListInstanceAssociations
+              - ssm:PutInventory
+              - ssm:PutComplianceItems
+              - ssm:PutConfigurePackageResult
+              - ssm:UpdateAssociationStatus
+              - ssm:UpdateInstanceAssociationStatus
+              - ssm:UpdateInstanceInformation
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - ssmmessages:CreateControlChannel
+              - ssmmessages:CreateDataChannel
+              - ssmmessages:OpenControlChannel
+              - ssmmessages:OpenDataChannel
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - ec2messages:AcknowledgeMessage
+              - ec2messages:DeleteMessage
+              - ec2messages:FailMessage
+              - ec2messages:GetEndpoint
+              - ec2messages:GetMessages
+              - ec2messages:SendReply
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - cloudwatch:PutMetricData
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - ec2:Describe*
+              - ec2:*Tags
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - ds:CreateComputer
+              - ds:DescribeDirectories
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:DescribeLogGroups
+              - logs:DescribeLogStreams
+              - logs:PutLogEvents
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - s3:GetBucketLocation
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetEncryptionConfiguration
+              - s3:AbortMultipartUpload
+              - s3:ListMultipartUploadParts
+              - s3:ListBucket
+              - s3:ListBucketMultipartUploads
+              - s3:*Tagging
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - acm:ListCertificates
+              - acm:ExportCertificate
+              Resource: "*"
+            - Effect: Allow
+              Action:
+              - sns:Publish
+              Resource: !Sub "arn:aws:sns:${AWS::Region}:*:*"
+        - PolicyName: "SsmDenyPolicyForRuntimeEC2"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Deny
+              Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/delta/ec2/restricted/*"
+            - Effect: Deny
+              Action:
+              - iam:*InstanceProfile
+              - ec2:*InstanceProfileAssociations
+              Resource: "*"
+      PermissionsBoundary: !Join [":", ["arn:aws:iam:", !Ref AWS::AccountId, "policy/cft-developer-boundary-policy"] ]
+  EC2InstanceProfile:
+    Condition: IsFirstBlockCode
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      InstanceProfileName: !Join [ "-", ['delegate-admin', !Ref blockCode, 'instance-profile']]
+      Path: /
+      Roles:
+        -
+          Ref: EC2RuntimeRole
+
+
+  EC2NamingInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !If
+        - IsProductionAccount
+        - !Sub arn:aws:sns:${AWS::Region}:094835659498:name_generator_topic
+        - !Sub arn:aws:sns:${AWS::Region}:148569397242:name_generator_topic
+      OSVersion: !Ref osVersion
+      Domain: !FindInMap [AirlineMap, !Ref orgTenant, 'prdAD']
+      Environment: !FindInMap [EnvironmentMap, !Ref Environment, "mainCategory"]
+      Region: !Ref "AWS::Region"
+      ServerType: !Ref ServerType
+  EC2SailpointInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:sailpoint-group-creation
+      hostName: !GetAtt EC2NamingInvocation.name
+#      domainName: 'Corp AD'
+      primaryOwner: !Ref AdminPrimaryOwner
+      secondaryOwners: !Ref AdminSecondaryOwners
+      environment: !Ref Environment
+      dataClassification: !FindInMap [DataClassificationMap, !Ref dataClassification, "SailpointDataClassification"]
+      isPII: !Ref piiIndicator
+      isPCI: !Ref pciIndicator
+      isSOX: !Ref soxIndicator
+      isCUI: !Ref cuiIndicator
+      isGDPR: !Ref gdprIndicator
+
+  SSMDocumentToCallDB2InstallSSMDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Content:
+        description: "Call Automation Document that will install DB2 on EC2"
+        schemaVersion: "2.2"
+        mainSteps:
+          - action: aws:runDocument
+            name: installdb2
+            inputs:
+              documentType: SSMDocument
+              documentPath: dl-db-db2-standalone-install
+              documentParameters:
+                {
+                  Db2InstallArtifactsS3Bucket: !Ref Db2InstallArtifactsS3Bucket,
+                  Db2InstallerBinaryFileS3KeyName: !Ref Db2InstallerBinaryFileS3KeyName,
+                  Db2InstallerBinaryFileOnS3: !Ref Db2InstallerBinaryFileOnS3,
+                  Db2InstallerLicenseFileS3KeyName: !Ref Db2InstallerLicenseFileS3KeyName,
+                  Db2InstallerLicenseFileName: !Ref Db2InstallerLicenseFileName,
+                  Db2InstallerResponseFileName: !Ref Db2InstallerResponseFileName,
+                  Db2InstallerResponseFileS3KeyName: !Ref Db2InstallerResponseFileS3KeyName,
+                  Db2DownloadDir: !Ref Db2DownloadDir,
+                  Db2Installdir: !Ref Db2Installdir,
+                  Db2Tmpdir: !Ref Db2Tmpdir,
+                  Db2AdmGroup: !Ref Db2AdmGroup,
+                  Db2AdmUser: !Ref Db2AdmUser,
+                  Db2PortNum: !Ref Db2PortNum,
+                  Db2InstanceHomedir: !Ref Db2InstanceHomedir,
+                  Db2FenceidHomedir: !Ref Db2FenceidHomedir,
+                  Db2ScriptsFolderS3KeyName: !Ref Db2ScriptsFolderS3KeyName,
+                  Db2ScriptsFolderLocalDownloadPath: !Ref Db2ScriptsFolderLocalDownloadPath,
+                  Db2TemplatesFolderS3KeyName: !Ref Db2TemplatesFolderS3KeyName,
+                  Db2TemplatesFolderLocalDownloadPath: !Ref Db2TemplatesFolderLocalDownloadPath,
+                  AdminMountPointPath: !Ref AdminMountPointPath,
+                  DiagMountPointPath: !Ref DiagMountPointPath,
+                  DataMountPointPath: !Ref DataMountPointPath,
+                  BackupMountPointPath: !Ref BackupMountPointPath,
+                  DBNumber: !Ref DBNumber,
+                  CodePage: !Ref CodePage,
+                  Territory: !Ref Territory,
+                  DatabaseTimezone: !Ref DatabaseTimezone,
+                  LogRetention: !Ref LogRetention
+
+                }
+      DocumentType: Command
+      Name: !Join ["-", ["DL", "Command", !GetAtt EC2NamingInvocation.name]]
+
+  CMKForDatabaseVolumeEncryption:
+      Condition: IsdataClassificationInternalOrConfidential
+      Type: AWS::ServiceCatalog::CloudFormationProvisionedProduct
+      Properties:
+        ProductName: "KMS CMK"
+        ProvisionedProductName:
+          !Join [
+            "-",
+            [
+              "db2",
+              !Ref productBlockCode,
+              !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+              !Ref DBNumber,
+              "db",
+              "cmk",
+            ],
+          ]
+        ProvisioningArtifactName: "1.8"
+        ProvisioningParameters:
+          - Key: KEYNAME
+            Value:
+              !Join [
+                "-",
+                [
+                  "db2",
+                  !Ref productBlockCode,
+                  !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+                  !Ref DBNumber,
+                  "db",
+                  "cmk",
+                ],
+              ]
+          - Key: KEYACCESS1
+            Value: DeveloperPowerUserProvisioner
+          - Key: KEY1PERMISSIONS
+            Value: Both
+          # - Key: KEYACCESS2
+          #   Value: !Sub delegate-admin-${blockCode}
+          - Key: KEYACCESS2
+            Value:
+              !Join [
+                "-",
+                [
+                  "delegate",
+                  "admin",
+                  {
+                    "Fn::Transform":
+                      {
+                        "Name": "String",
+                        "Parameters":
+                          { "InputString": !Ref blockCode, "Operation": "Upper" },
+                      },
+                  },
+                ],
+              ]
+          - Key: KEY2PERMISSIONS
+            Value: Decrypt
+          - Key: KEYACCESS3
+            Value: DBAOperator
+          - Key: KEY3PERMISSIONS
+            Value: Decrypt
+          - Key: SERVICENAME
+            Value: ""
+        Tags:
+          - Key: changeGroup
+            Value: !Ref changeGroup
+          - Key: costCenter
+            Value: !Ref costCenter
+          - Key: dataClassification
+            Value: !Ref dataClassification
+          - Key: UniqueID
+            Value: !Ref uniqueId
+          - Key: supportGroup
+            Value: !Ref supportGroup
+          - Key: AccountID
+            Value: !Sub ${AWS::AccountId}
+          - Key: blockCode
+            Value:
+              'Fn::Transform':
+                Name: 'String'
+                Parameters:
+                  InputString: !Ref blockCode
+                  Operation: Upper
+
+
+  CMKforDatabaseUserSecrets:
+        Type: AWS::ServiceCatalog::CloudFormationProvisionedProduct
+        Properties:
+          ProductName: "KMS CMK"
+          ProvisionedProductName:
+            !Join [
+              "-",
+              [
+                "db2",
+                !Ref productBlockCode,
+                !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+                !Ref DBNumber,
+                "dbuser",
+                "secret",
+                "cmk",
+              ],
+            ]
+          ProvisioningArtifactName: "1.8"
+          ProvisioningParameters:
+            - Key: KEYNAME
+              Value:
+                !Join [
+                  "-",
+                  [
+                    "db2",
+                    !Ref productBlockCode,
+                    !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+                    !Ref DBNumber,
+                    "dbuser",
+                    "secret",
+                    "cmk",
+                  ],
+                ]
+            - Key: KEYACCESS1
+              Value: DeveloperPowerUserProvisioner
+            - Key: KEY1PERMISSIONS
+              Value: Both
+            - Key: KEYACCESS2
+              Value: DBAOperator
+            - Key: KEY2PERMISSIONS
+              Value: Decrypt
+            - Key: SERVICENAME
+              Value: ""
+          Tags:
+            - Key: changeGroup
+              Value: !Ref changeGroup
+            - Key: costCenter
+              Value: !Ref costCenter
+            - Key: dataClassification
+              Value: !Ref dataClassification
+            - Key: UniqueID
+              Value: !Ref uniqueId
+            - Key: supportGroup
+              Value: !Ref supportGroup
+            - Key: AccountID
+              Value: !Sub ${AWS::AccountId}
+            - Key: blockCode
+              Value:
+                'Fn::Transform':
+                  Name: 'String'
+                  Parameters:
+                    InputString: !Ref blockCode
+                    Operation: Upper
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupName: !Sub ${ProjectName}-db2-${osVersion}-sg
+        GroupDescription: Allow ingress from custom resources
+        VpcId:
+          !Sub "{{resolve:ssm:/delta/vpc/vpcid}}"
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref Db2PortNum
+          ToPort: !Ref Db2PortNum
+          SourcePrefixListId : !Ref DeltaPrivateNetworkPrefixesListId
+        - IpProtocol: tcp
+          FromPort: !Ref Db2PortNum
+          ToPort: !Ref Db2PortNum
+          SourceSecurityGroupId : !Ref ApplicationSecurityGroupId
+        Tags:
+        -
+          Key: "Name"
+          Value: !Sub
+           - ${reg}-${env}-${os}${tier}-${blockCode}
+           -  {
+              reg:  !FindInMap [RegionMap, !Ref "AWS::Region", "abbreviation"],
+              env:  !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+              os: 'L',     # L|W     L=LINUX,W=Windows
+              tier: 'D'   # W|A|D   W=Web,A=App,D=Database
+              }
+
+  Route53RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: '{{resolve:ssm:/delta/r53/hostedzoneid:1}}'
+      Name: !Sub
+        - "db2-${blockCode}-${DBNumber}.${hostedzonedomain}"
+        - {
+          hostedzonedomain: '{{resolve:ssm:/delta/r53/hostedzonename:1}}'
+          }
+      Type: CNAME
+      TTL: '300'
+      ResourceRecords:
+         - !Join [
+            ".",
+            [
+              !GetAtt EC2NamingInvocation.name,
+              "{{resolve:ssm:/delta/r53/hostedzonename:1}}"
+            ],
+          ]
+    DependsOn: EC2NamingInvocation
+  
+  DB2LogGroup: 
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      RetentionInDays: !Ref LogRetention
+      LogGroupName: !Join [
+        "-",
+        [
+          "cw",
+          !Ref productBlockCode,
+          "db2alertlog"
+        ]
+        
+      ]
+      Tags: 
+        - Key: blockCode
+          Value: !Ref productBlockCode
+    DependsOn: BaseLaunchTemplate
+
+Outputs:
+  SecurityGroup:
+    Description: The Security Group ID
+    Value: !Ref InstanceSecurityGroup
+  CName:
+    Description: CNAME/DNS Host Alias to this Database
+    Value: !Ref Route53RecordSet
+  Db2DatabasePort:
+    Description: DB port Number 
+    Value: !Ref Db2PortNum  
+  CMKforDatabaseuserSecrets:
+    Description: CMK used for Database User Secrets
+    Value: !Ref CMKforDatabaseUserSecrets

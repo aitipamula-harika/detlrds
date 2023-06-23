@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This CFT creates IAM Role for Role Authentication'
+
+Resources:
+
+  #The custom runtime role
+  RDSBastionEC2RuntimeRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Delete
+    Properties:
+      RoleName: delegate-admin-rds-pgs-btfs-iam-auth-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - 'arn:aws:iam::080196648158:role/delegate-admin-opsdatalake-lambda-role'
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: "delegate-admin-rds-pgs-btfs-iam-auth-policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - rds-db:connect
+              Resource:
+              - 'arn:aws:rds-db:us-east-1:108101204381:dbuser:db-TTC2GJJ54FF4KAYK3U65MVEVLY/btfs_edluser_ro'
+              - 'arn:aws:rds-db:us-east-1:108101204381:dbuser:db-TTC2GJJ54FF4KAYK3U65MVEVLY/btfs_edluser_rw'
+      PermissionsBoundary: !Join [":", ["arn:aws:iam:", !Ref AWS::AccountId, "policy/cft-developer-boundary-policy"] ]
+ 
+
+
+  

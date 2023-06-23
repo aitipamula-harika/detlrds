@@ -1,0 +1,794 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating an OpenJDK Launch Template and Instance last modified on May 25, 2021
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'General Parameters'
+      Parameters:
+      - ProjectName
+      - backup
+      - managedByTower
+      - blockCode
+      - firstblockCode
+      - InstanceType
+      - osVersion
+      - Environment
+      - EC2IAMInstanceProfileName
+      - ServerType
+      - DomainEnv
+      - SubnetSelection
+      - ApplicationNumber
+      - entMonitoringProfile
+      - dbEngine   
+      - EBSCustomerManagedKmsKey   
+    - Label:
+        default: 'Patching Parameters'
+      Parameters:
+      - OSPatchDay
+      - OSPatchHour
+      - ProductPatchDay
+      - ProductPatchHour
+      - ProdOOBPatchGroup
+    - Label:
+        default: 'Filesystem Sizes'
+      Parameters:
+      - AppsVolumeSize
+      - ProductsVolumeSize
+      - LogsVolumeSize
+      - Data0VolumeSize
+      - Data1VolumeSize 
+      - Data2VolumeSize           
+      - DSEVolumeSize     
+    - Label:
+        default: 'OpenJDK Parameters'
+      Parameters:
+      - postConfigValue
+      - infraAppVersion
+      - appSupportEmail
+      - infraAppSupportEmail      
+    - Label:
+        default: 'Sailpoint Integration Parameters'
+      Parameters:
+      - AdminPrimaryOwner
+      - AdminSecondaryOwners
+      - ApplicationPrimaryOwner
+      - ApplicationSecondaryOwners
+      - gdprIndicator
+      - piiIndicator
+    - Label:
+        default: 'General Tagging Parameters'
+      Parameters:
+      - costCenter
+      - uniqueId
+      - dataClassification
+      - supportGroup
+      - changeGroup
+      - drTier
+      - pciIndicator
+      - phiIndicator
+      - cuiIndicator
+      - soxIndicator
+
+Parameters:
+
+
+  InstanceType:
+    Type: String
+    Description: Select the instance type you would like to use in your launch templates
+    AllowedValues: ['i3.2xlarge','t3.micro', 't2.micro', 't3.small', 't2.small']
+    Default: i3.2xlarge
+
+  backup:
+    Type: String
+    Description: Refers to whether data protection is required or not required.
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+
+  managedByTower:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+
+  osVersion:
+    Type: String
+    Description: Select the RHEL OS Version you would like to use
+    AllowedValues: ['rhel-7x', 'rhel-8x']
+    Default: rhel-7x
+  AppsVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the apps volume
+    Default: 10
+
+  ProductsVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the products volume
+    Default: 15
+
+  LogsVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the logs volume
+    Default: 10
+
+  Data0VolumeSize:
+    Type: Number
+    Description: Enter the volume size for the logs volume
+    Default: 300
+
+  Data1VolumeSize:
+    Type: Number
+    Description: Enter the volume size for the logs volume
+    Default: 100
+
+  Data2VolumeSize:
+    Type: Number
+    Description: Enter the volume size for the logs volume
+    Default: 100        
+
+  DSEVolumeSize:
+    Type: Number
+    Description: Enter the volume size for the logs volume
+    Default: 100
+
+
+  SubnetSelection:
+    Type: String
+    Description: The SSM Parameter Name that points to the subnet that you would like to create your OpenJDK inside of.  Migrate accounts should use format webappsubnet#aid and other dev accounts should use format privatesubnet#aid
+    AllowedValues: ['webappsubnet1aid', 'webappsubnet1bid','webappsubnet1cid','webappsubnet2aid', 'webappsubnet2bid','webappsubnet2cid','privatesubnet1aid','privatesubnet2aid','datasubnet1aid','datasubnet1bid','datasubnet1cid','datasubnet1did']
+    Default: datasubnet1aid
+   
+
+  infraAppVersion:
+    Type: String
+    Description: The product major version of OpenJDK to use
+    AllowedValues: ['1.8.282.0','none','1.8','11']
+    Default: 1.8.282.0
+  blockCode:
+    Type: String
+    Description: Enter the block code for the project
+    AllowedPattern: ^[a-zA-Z0-9]{10}$
+    Default: OFRPOFPAAM
+
+  firstblockCode:
+    Type: String
+    Description: A flag indicating whether or not this is the first stack which uses the blockcode or not
+    AllowedValues: ['true', 'false']
+    Default: "false"
+
+  ProjectName:
+    Type: String
+    Description: Enter the name for the project
+    Default: Retail-API
+
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+
+  appSupportEmail:
+    Type: String
+    Description: Enter the application team support email
+    Default: "RetailAPI@delta.com"
+
+  infraAppSupportEmail:
+    Type: String
+    Description: Enter a tag value for application support group email ID
+    Default: "ITxCassandraSupport@delta.com"  
+      
+
+  EC2IAMInstanceProfileName:
+    Type: String
+    Description: The Arn of the IAM Instance Profile that should be used when creating the EC2 Launch Template
+    Default: DeltaMigrationEC2Role
+
+  DomainEnv:
+    Type: String
+    Default: Delta.RL.Delta.com
+    AllowedValues:
+      - Delta.RL.Delta.com
+      - VAD.VS.AIR4.com
+
+  entMonitoringProfile:
+    Type: String
+    Default: BaseOSCustom
+    AllowedValues:
+      - NoMonitoring
+      - BaseOS
+      - BaseOSInfraApp
+      - BaseOSAPM
+      - BaseOSAPMInfraApp
+      - BaseOSLoggingAnalytics
+      - BaseOSAPMLoggingAnalytics
+      - BaseOSAPMInfraAppLoggingAnalytics
+      - BaseOSLogging
+      - BaseOSCustom
+
+  EBSCustomerManagedKmsKey:
+    Type: String
+    Description: This can be a KeyId/Alias/Arn of the CMK KMS Key to use for encrypting your ebs data volumes based on the data classification. This has to be a CMK. Generate a CMK using Service Catalog if necessary.
+    Default: "arn:aws:kms:us-east-1:108101204381:key/cdd89e4f-50b7-481c-b239-844b7b28c0a0"
+    
+
+  ServerType:
+    Type: String
+    AllowedValues:
+      - application
+      - database
+      - dc
+      - citrix
+      - web
+    Default: database
+
+  dbEngine:
+    Type: String
+    Description: Determines and installs DB Client binaries required on the EC2 instance
+    AllowedValues: ['oracle19','postgres13','db2luw11','dbserver-oracle19','dbserver-sqlserver2019std','dbserver-sqlserver2019ee','dbserver-db2luw11','dbserver-cassandra60','dbserver-cassandra67','dbserver-cassandra68']
+    Default: 'dbserver-cassandra60'
+
+  OSPatchDay:
+    Type: String
+    Description: The day that you would like the OS on this instance patched on.  Note that non-prd instances will get patched during the 1st week of the 14-day patch cycle whereas prd instances will get patched in the 2nd week of the 14-day patch cycle.
+    AllowedValues: ['tue','wed','thu','fri']
+    Default: tue
+
+  OSPatchHour:
+    Type: String
+    Description: The hour (2 digit) that you would like the OS for this instance patched on.
+    AllowedValues: ['10','01', '03','19','22']
+    Default: '10'
+
+  ProductPatchDay:
+    Type: String
+    Description: The day that you would like OpenJDK patched on.  Note that non-prd instances will get patched during the 1st week of the 14-day patch cycle whereas prd instances will get patched in the 2nd week of the 14-day patch cycle.
+    AllowedValues: ['tue','wed','thu','fri']
+    Default: wed
+
+  ProductPatchHour:
+    Type: String
+    Description: The hour (2 digit) that you would like OpenJDK patched on.
+    AllowedValues: ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23']
+    Default: "22"
+
+  ProdOOBPatchGroup:
+    Type: String
+    Description: The Out of Band (OOB) patch schedule you would like to use for this instance.  Note that this only applies to production instances.
+    AllowedValues: ['dev-day-1-1800','prd-day-3-2000','prd-day-4-2200','prd-day-5-2400','prd-day-6-0200','prd-day-7-0400']
+    Default: "dev-day-1-1800"
+
+  AdminPrimaryOwner:
+    Type: String
+    Description: Primary owner user id (6 digit) that should be set on the Admin AD group which sailpoint creates
+    Default: "896944"
+  AdminSecondaryOwners:
+    Type: String
+    Description: Comma delimited list of secondary owner user ids (6 digit) that should be set on the Admin AD group which sailpoint creates
+    Default: "411967"
+  gdprIndicator:
+    Type: String
+    Description: Refers to the general data protection regulation category of information
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  piiIndicator:
+    Type: String
+    Description: Refers to any personal identifiable information related to an individual.
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+
+  postConfigValue:
+    Type: String
+    Description: The value that the postConfig ec2 tag should be set to in order to complete the postConfig script
+    # AllowedPattern: ['^RHEL-OPENJDK$' , 'RHEL-OPENJDK-COMPLETE']
+    Default: RHEL-OPENJDK
+
+  # GENERAL TAGGING PARAMETERS
+  costCenter:
+    Description: The value for the costCenter tag.
+    AllowedPattern: ^C[0-9]{4}ATG$
+    Type: String
+    Default: "C8660ATG"    
+  uniqueId:
+    Description: The unique ideentifier for the instance.
+    AllowedPattern: ^(D|A)[0-9]{7}$
+    Type: String
+    Default: "A0020730"    
+  dataClassification:
+    Description: The value for the dataClassificationParameter tag
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: confidential
+  supportGroup:
+    Description: The value for the supportGroup tag.
+    AllowedPattern: ^[A-Za-z0-9_-]+$
+    Type: String
+    Default: RevMgmt_RetailAPI    
+  changeGroup:
+    Description: Identifies the ServiceNow group of the application owner who owns the AWS resource. The tag value needs to be an exact match of the ServiceNow group.
+    AllowedPattern: ^[A-Za-z0-9_ -]+$
+    Type: String
+    Default: RevMgmt_RetailAPI    
+  drTier:
+    Type: String
+    Description: A tier designation, which defines the chronological order of recovery for an application during an IT Disaster event.
+    AllowedValues: ['mission vital','mission critical','business critical','business essential','business']
+    Default: 'business critical'
+  phiIndicator:
+    Type: String
+    Description: Refers to any health information (medical and insurance) related to an individual.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  pciIndicator:
+    Type: String
+    Description: Refers to the category used for credit cardholder data and sensitive authentication data.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  soxIndicator:
+    Type: String
+    Description: Refers to any information that has a direct and material impact on Delta?s financial reporting.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  cuiIndicator:
+    Type: String
+    Description: Refers to the category of unclassified information within the U.S. Federal government. Confidential.
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+  ApplicationNumber:
+    Type: String
+    Description: The 2 digit Application Number.  This number will be used when creating the Application Alias DNS.
+    AllowedPattern: ^[0-9]{2}$
+    Default: '01'
+  CassandraMountPoint01:
+    Type: String
+    Description: Main mount point under which all the other will be hosted .I use this to chown to cassandra
+    Default: "/database"
+  CassandraMountPoint04:
+    Type: String
+    Description: Location of dse 
+    Default: "/opt/dse"
+  AddUser:
+    Type: String
+    Description: USer to addon server
+    Default: "cassandra"
+  CASSS3BucketName:
+    Type: String
+    Description: The name of the S3 Bucket which contains the RHEL Postconfig Artifacts (example. PostConfig Ansible Playbook)
+    Default: delta-rds-artifacts-us-east-1    
+  Envrn:
+    Type: String
+    Description: Cassandra Install Enviornment
+    AllowedValues: ["dev","si","prd"]
+    Default: "dev"
+  SolrEnabled:
+    Type: String
+    Description: SolrEnabled values can be true or false
+    AllowedValues: ['true', 'false']
+    Default: true
+  SparkEnabled: 
+    Description: SolrEnabled values can be true or false
+    AllowedValues: ['true', 'false']
+    Type: String
+    Default: false
+  DSEVersion:
+    Type: String
+    Description: DSEVersion
+    Default: dse-6.0.13  
+  Rack:
+    Type: String
+    Description: Cassandra Install Enviornment
+    Default: rack1
+  DataCenter:
+    Type: String
+    Description: SolrEnabled values can be yes or no
+    Default: aws
+  AgentVersion:
+    Type: String
+    Description: SolrEnabled values can be yes or no
+    Default: datastax-agent-6.8.15    
+  ClusterName: 
+    Description: SolrEnabled values can be yes or no
+    Type: String
+    Default: test_cluster
+    
+
+Mappings:
+  ProductMap:
+    "was":
+      "abbreviation": "w"
+    "apache":
+      "abbreviation": "a"
+    "eap":
+      "abbreviation": "j"
+    "openjdk":
+      "abbreviation": "o"
+    "tomcat":
+      "abbreviation": "t"
+  SubnetMap:
+    "webappsubnet1aid":
+      "dnssuffix": "1a"
+    "webappsubnet1bid":
+      "dnssuffix": "1b"
+    "webappsubnet1cid":
+      "dnssuffix": "1c"
+    "webappsubnet2aid":
+      "dnssuffix": "2a"
+    "webappsubnet2bid":
+      "dnssuffix": "2b"
+    "webappsubnet2cid":
+      "dnssuffix": "2c"
+    "privatesubnet1aid":
+      "dnssuffix": "1a"
+    "privatesubnet2aid":
+      "dnssuffix": "2a"
+    "datasubnet1aid":
+      "dnssuffix": "1a"
+    "datasubnet1bid":
+      "dnssuffix": "1b"   
+    "datasubnet1cid":
+      "dnssuffix": "1c"
+    "datasubnet1did":
+      "dnssuffix": "1d"         
+  DataClassificationMap:
+    "internal":
+      "SailpointDataClassification": "Internal"
+    "public":
+      "SailpointDataClassification": "Public"
+    "confidential":
+      "SailpointDataClassification": "Confidential"
+    "restricted":
+      "SailpointDataClassification": "Restricted"
+  EnvironmentMap:
+    sandbox:
+      "singleAbbreviation": "l"
+      "abbreviation": "lab"
+      "patchabbreviation": "lab"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "dev-day-1-1800"
+    development:
+      "singleAbbreviation": "d"
+      "abbreviation": "dvl"
+      "patchabbreviation": "dev"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "dev-day-1-1800"
+    systems-integration:
+      "singleAbbreviation": "i"
+      "abbreviation": "int"
+      "patchabbreviation": "si"
+      "mainCategory": "nonprd"
+      "oobPatchGroup": "si-day-2-1800"
+    production:
+      "singleAbbreviation": "p"
+      "abbreviation": "prd"
+      "patchabbreviation": "prd"
+      "mainCategory": "prd"
+      "oobPatchGroup": "not applicable"
+  RegionMap:
+    us-east-1:
+      "abbreviation": "NV"
+    us-west-2:
+      "abbreviation": "OR"
+
+Conditions:
+  IsFirstBlockCode: !Equals
+    - !Ref firstblockCode
+    - 'true'
+  IsManagedByTower: !Equals
+    - !Ref managedByTower
+    - 'true'
+  IsManagedByPrdTower: !And
+    - !Equals ["production", !Ref Environment]
+    - !Equals ['true', !Ref managedByTower]
+  IsManagedByNonPrdTower: !And
+    - !Not [!Equals ["production", !Ref Environment]]
+    - !Equals ['true', !Ref managedByTower]
+  IsDevelopmentAccount: !Equals
+    - !Ref Environment
+    - 'development'
+  IsSystemsIntegrationAccount: !Equals
+    - !Ref Environment
+    - 'systems-integration'
+  IsProductionAccount: !Equals
+    - !Ref Environment
+    - 'production'
+  isBaseApplication: !Equals
+    - !Ref ApplicationNumber
+    - '01'
+
+Resources:
+#EC2
+  OpenJDKLaunchTemplate:
+    DependsOn: EC2SailpointInvocation
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${ProjectName}-openjdk-${osVersion}-${infraAppVersion}
+      LaunchTemplateData:
+        ImageId: !Sub '{{resolve:ssm:/delta/ec2/ami/${osVersion}/${AWS::Region}/latest:1}}'
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Name: !Ref EC2IAMInstanceProfileName
+        BlockDeviceMappings:
+          - Ebs:
+              VolumeSize: !Ref AppsVolumeSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !Ref EBSCustomerManagedKmsKey
+            DeviceName: /dev/sdc
+          - Ebs:
+              VolumeSize: !Ref ProductsVolumeSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !Ref EBSCustomerManagedKmsKey
+            DeviceName: /dev/sdd
+          - Ebs:
+              VolumeSize: !Ref LogsVolumeSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !Ref EBSCustomerManagedKmsKey
+            DeviceName: /dev/sde
+          - Ebs:
+              VolumeSize: !Ref Data0VolumeSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !Ref EBSCustomerManagedKmsKey
+            DeviceName: /dev/sdf
+          - Ebs:
+              VolumeSize: !Ref Data1VolumeSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !Ref EBSCustomerManagedKmsKey
+            DeviceName: /dev/sdg
+          - Ebs:
+              VolumeSize: !Ref Data2VolumeSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !Ref EBSCustomerManagedKmsKey
+            DeviceName: /dev/sdh                        
+          - Ebs:
+              VolumeSize: !Ref DSEVolumeSize
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !Ref EBSCustomerManagedKmsKey
+            DeviceName: /dev/sdi
+
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            SubnetId: !Sub '{{resolve:ssm:/delta/vpc/${SubnetSelection}:1}}'
+            Groups:
+              - '{{resolve:ssm:/delta/ec2/infrastructure-sg-id:1}}'
+              - !ImportValue 
+                  'Fn::Sub': 'OpenJDK-secrurityGroup-${blockCode}'
+              - !If
+                - IsManagedByPrdTower
+                - '{{resolve:ssm:/delta/ec2/tower-prd-rhel-sg-id:1}}'
+                - !Ref AWS::NoValue
+              - !If
+                - IsManagedByNonPrdTower
+                - '{{resolve:ssm:/delta/ec2/tower-nonprd-rhel-sg-id:1}}'
+                - !Ref AWS::NoValue
+        TagSpecifications:
+          - ResourceType: volume
+            Tags:
+              - Key: changeGroup
+                Value: !Ref changeGroup
+              - Key: blockCode
+                Value: !Ref blockCode
+              - Key: costCenter
+                Value: !Ref costCenter
+              - Key: dataClassification
+                Value: !Ref dataClassification
+              - Key: uniqueId
+                Value: !Ref uniqueId
+              - Key: supportGroup
+                Value: !Ref supportGroup
+              - Key: drTier
+                Value: !Ref drTier
+              - Key: blockCode
+                Value: !Ref blockCode
+              - Key: pciIndicator
+                Value: !Ref pciIndicator
+              - Key: soxIndicator
+                Value: !Ref soxIndicator
+              - Key: cuiIndicator
+                Value: !Ref cuiIndicator
+              - Key: phiIndicator
+                Value: !Ref phiIndicator
+              - Key: infraAppSupportEmail
+                Value: !Ref infraAppSupportEmail
+              - Key: dbEngine 
+                Value: !Ref dbEngine
+              - Key: entMonitoringProfile
+                Value: !Ref entMonitoringProfile                                
+
+  OpenJDKInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId:  !Ref OpenJDKLaunchTemplate
+        Version: 1
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroup
+        - Key: costCenter
+          Value: !Ref costCenter
+        - Key: dataClassification
+          Value: !Ref dataClassification
+        - Key: uniqueId
+          Value: !Ref uniqueId
+        - Key: supportGroup
+          Value: !Ref supportGroup
+        - Key: drTier
+          Value: !Ref drTier
+        - Key: postConfig
+          Value: !Ref postConfigValue
+        - Key: osVersion
+          Value: !Ref osVersion
+        - Key: infraAppVersion
+          Value: !Ref infraAppVersion
+        - Key: Name
+          Value: !GetAtt EC2NamingInvocation.name
+        - Key: environment
+          Value: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+        - Key: blockCode
+          Value: !Ref blockCode
+        - Key: infraAppSupportEmail
+          Value: !Ref infraAppSupportEmail
+        - Key: dbEngine 
+          Value: !Ref dbEngine
+        - Key: entMonitoringProfile
+          Value: !Ref entMonitoringProfile           
+        - Key: alias
+          Value: !Sub
+            - ${prefix}.${hostedzonename}
+            - {
+                prefix: !GetAtt EC2NamingInvocation.name,
+                hostedzonename: '{{resolve:ssm:/delta/r53/hostedzonename:1}}',
+              }
+        - Key: appAlias
+          Value: !Sub
+            - "${blockCode}${producttype}${environmentAbbreviation}${ApplicationNumber}01n${ec2region}${ec2subnet}.${hostedzonedomain}"
+            - {
+              producttype: !FindInMap [ProductMap, "openjdk", "abbreviation"],
+              environmentAbbreviation: !FindInMap [EnvironmentMap, !Ref Environment, "singleAbbreviation"],
+              hostedzonedomain: '{{resolve:ssm:/delta/r53/hostedzonename:1}}',
+              ec2subnet: !FindInMap [SubnetMap, !Ref SubnetSelection, "dnssuffix"],
+              ec2region: !FindInMap [RegionMap, !Ref AWS::Region, "abbreviation"]
+              }
+        - Key: osPatchGroup
+          Value: !Sub
+            - os-rhel-${OSPatchEnvironment}-${OSPatchWeek}-${OSPatchDay}-${OSPatchHour}00
+            - {
+              OSPatchEnvironment: !FindInMap [EnvironmentMap, !Ref Environment, "patchabbreviation"],
+              OSPatchWeek: !If [IsProductionAccount, 'wk2', 'wk1']
+              }
+        - Key: infraAppPatchGroup
+          Value: !Sub
+            - product-rhel-${ProductPatchEnvironment}-${ProductPatchWeek}-${ProductPatchDay}-${ProductPatchHour}00
+            - {
+              ProductPatchEnvironment: !FindInMap [EnvironmentMap, !Ref Environment, "patchabbreviation"],
+              ProductPatchWeek: !If [IsProductionAccount, 'wk2', 'wk1']
+              }
+        - Key: oobPatchGroup
+          Value: !If
+            - IsProductionAccount
+            - !Ref ProdOOBPatchGroup
+            - !FindInMap [EnvironmentMap, !Ref Environment, "oobPatchGroup"]
+        - Key: managedByTower
+          Value: !Ref managedByTower
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: backup
+          Value: !Ref backup
+
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash -xe
+          /usr/local/bin/delta-add-new-ebs-filesystem.sh /dev/sdf /database/cassandra/data0
+          /usr/local/bin/delta-add-new-ebs-filesystem.sh /dev/sdg /database/cassandra/data1
+          /usr/local/bin/delta-add-new-ebs-filesystem.sh /dev/sdh /database/cassandra/data2
+          /usr/local/bin/delta-add-new-ebs-filesystem.sh /dev/sdi /opt/dse          
+
+  AppCName:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: '{{resolve:ssm:/delta/r53/hostedzoneid:1}}'
+      Name: !Sub
+        - "${blockCode}${producttype}${environmentAbbreviation}${ApplicationNumber}01n${ec2region}${ec2subnet}.${hostedzonedomain}"
+        - {
+          producttype: !FindInMap [ProductMap, "openjdk", "abbreviation"],
+          environmentAbbreviation: !FindInMap [EnvironmentMap, !Ref Environment, "singleAbbreviation"],
+          hostedzonedomain: '{{resolve:ssm:/delta/r53/hostedzonename:1}}',
+          ec2subnet: !FindInMap [SubnetMap, !Ref SubnetSelection, "dnssuffix"],
+          ec2region: !FindInMap [RegionMap, !Ref AWS::Region, "abbreviation"]
+          }
+      Type: CNAME
+      TTL: '300'
+      ResourceRecords:
+      - !Sub
+        - ${prefix}.${accountname}.${suffix}
+        - {
+            prefix: !GetAtt EC2NamingInvocation.name,
+            accountname: '{{resolve:ssm:/org/member/account_name:1}}',
+            suffix: aws.delta.com
+          }
+
+#LAMBDAS
+  EC2NamingInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !If
+        - IsProductionAccount
+        - !Sub arn:aws:sns:${AWS::Region}:094835659498:name_generator_topic
+        - !Sub arn:aws:sns:${AWS::Region}:148569397242:name_generator_topic
+      OSVersion: !Ref osVersion
+      Domain: !Ref DomainEnv
+      Environment: !FindInMap [EnvironmentMap, !Ref Environment, "mainCategory"]
+      Region: !Ref "AWS::Region"
+      ServerType: !Ref ServerType
+  EC2SailpointInvocation:
+    Type: AWS::CloudFormation::CustomResource
+    DeletionPolicy: Retain
+    Version: "1.0"
+    Properties:
+      ServiceToken: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:sailpoint-group-creation
+      hostName: !GetAtt EC2NamingInvocation.name
+      primaryOwner: !Ref AdminPrimaryOwner
+      secondaryOwners: !Ref AdminSecondaryOwners
+      environment: !Ref Environment
+      dataClassification: !FindInMap [DataClassificationMap, !Ref dataClassification, "SailpointDataClassification"]
+      isPII: !Ref piiIndicator
+      isPCI: !Ref pciIndicator
+      isSOX: !Ref soxIndicator
+      isCUI: !Ref cuiIndicator
+      isGDPR: !Ref gdprIndicator
+
+  SSMDocumentToCallCASSInstallSSMDocument:
+    Type: AWS::SSM::Document
+    DependsOn: 
+     - OpenJDKInstance
+     - OpenJDKLaunchTemplate
+    Properties:
+      Content:
+        description: "Call Automation Document that will install Cassandra on EC2"
+        schemaVersion: "2.2"
+        mainSteps:
+          - action: aws:runDocument
+            name: installCassandra
+            inputs:
+              documentType: SSMDocument
+              documentPath: DL-DB-cassandra-install
+              cloudWatchLogGroupName: cassandralogs
+              timeoutSeconds: "3600"
+              documentParameters:
+                {
+                  CassandraMountPoint01: !Ref CassandraMountPoint01,
+                  CassandraMountPoint04: !Ref CassandraMountPoint04,
+                  AddUser: !Ref AddUser,
+                  CASSS3BucketName: !Ref CASSS3BucketName,
+                  Envrn: !Ref Envrn,
+                  SolrEnabled: !Ref SolrEnabled,
+                  SparkEnabled: !Ref SparkEnabled,
+                  DSEVersion: !Ref DSEVersion,
+                  Rack: !Ref Rack,
+                  DataCenter: !Ref DataCenter,
+                  AgentVersion: !Ref AgentVersion,
+                  ClusterName: !Ref ClusterName                  
+                  }
+      DocumentType: Command
+      Name: !Join ["-", ["DL", "Command", !GetAtt EC2NamingInvocation.name]]

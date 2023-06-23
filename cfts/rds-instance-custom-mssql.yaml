@@ -1,0 +1,822 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "AWS CloudFormation Template for creating an Amazon RDS DB instance environment."
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'MSSQL Database details & credentials'
+      Parameters:
+      - Environment
+      - RDSInstanceSubnetSSMParameter
+      - RDSSubnetGroupSubnet1SSMParameter
+      - RDSSubnetGroupSubnet2SSMParameter
+      - RDSSubnetGroupSubnet3SSMParameter
+      - Blockcode
+      - DBNumber
+      - EngineVersion
+      - RDSKmsKey
+    - Label:
+        default: 'AWS RDS MSSQL Parameters'
+      Parameters:
+      - CustomIAMInstanceProfile
+      - S3Bucket
+      - S3Key
+      - DBInstanceClass
+      - StorageType
+      - Iops
+      - DBAllocatedStorage
+      - MaxAllocatedStorage
+      - LogRetention
+      - DBOptionGroupName
+      - DBBackupRetentionPeriod
+      - DefinedMaintenanceWindow
+      - DefinedBackupWindow
+      - DeltaPrivatePrefixList
+      - TimeZone
+      - Edition
+    - Label:
+        default: 'AWS RDS Tagging Parameters'
+      Parameters:
+      - costCenterParameter
+      - uniqueIDParameter
+      - dataClassificationParameter
+      - supportGroupParameter
+      - changeGroupParameter
+      - appCriticalityParameter
+      - pciIndicator
+      - soxIndicator
+      - cuiIndicator
+      - phiIndicator
+      - appSupportEmail 
+    - Label:
+       default: 'AWS RDS Monitoring Parameters'
+      Parameters:
+      - SnowSNSTopic
+    ParameterLabels:
+      EngineVersion:
+        default: 'MS SQL Engine version for database:'       
+Parameters:
+  CustomIAMInstanceProfile:
+    Type: String
+    Description: Instance profile associated with RDS Custom instance role.
+    Default: 'AWSRDSCustomSQLServerInstanceProfile'
+  S3Bucket:
+    Type: String
+    Description: Name of S3 bucket where the lambda code to create custom rds mssql server is stored
+    Default: 'delta-rds-artifacts-us-east-1'
+  S3Key:
+    Type: String
+    Description: Path to the lambda code zip file.
+    Default: 'mssql/lambdas/custom_rds_mssql_instance.zip'
+  Blockcode:
+    Type: String
+    Description: Enter the 10 character Blockcode (in lowercase) for this RDS instance
+    AllowedPattern: '^[a-z0-9]{10}$'
+    ConstraintDescription: The Blockcode must entered in lowercase and must be 10 characters long
+  DBNumber:
+    Type: String
+    Description: Enter the 2 digit database number for this RDS instance
+    Default: "01"
+    AllowedPattern: ^[0-9]{2}$
+    ConstraintDescription: The DBNumber must be 2 characters long
+  DBInstanceClass:
+    AllowedValues: ['db.m5.large','db.m5.xlarge','db.m5.2xlarge','db.m5.4xlarge','db.r5.large','db.r5.xlarge','db.r5.2xlarge']
+    Default: db.m5.large
+    Description: DB instance class. For Burstable please pick t3
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+  StorageType:
+    Type: String
+    Description: Specifies the storage type to be associated with the DB instance. General Purpose SSD (gp2), or Provisioned IOPS SSD (io1)
+    AllowedValues: ['gp2','io1']
+    Default: gp2
+  RDSInstanceSubnetSSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first subnet in which the lambda function should run.  Migration Account should use /delta/vpc/datasubnet1aid OR /delta/vpc/datasubnet2aid OR datasubnet3aid and other dev accounts should use privatesubnet1aid
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  RDSSubnetGroupSubnet1SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  RDSSubnetGroupSubnet2SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the second DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1bid
+  RDSSubnetGroupSubnet3SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the third DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1cid
+  Iops:
+    Type: Number
+    Description: The number of I/O operations per second (IOPS) that the database provisions. The value must be equal to or greater than 1000 and less than 80000.  This parameter is only applicable if the storage type is io1.
+    Default: 3000
+    MinValue: 1000
+    MaxValue: 80000
+  DBAllocatedStorage:
+    Type: Number
+    Default: 100
+    Description: The initial size of the database (GiB).  The minimum for gp2 storage is 20GB and the minimum for io1 storage is 100 GB.
+    MinValue: 20
+    MaxValue: 65536
+    ConstraintDescription: must be between 20 and 65536 GiB.
+  EngineVersion:
+    Description: 'MSSQL version.'
+    Type: String
+    Default: '15.00.4073.23.v1'
+    AllowedValues: ['15.00.4043.16.v1', '15.00.4073.23.v1']
+  Edition:
+    Type: String
+    Description: Please indicate the edition you would like to use when creating your MS SQL  DB instance
+    AllowedValues: ['Standard', 'Enterprise']
+    Default: Standard
+  DefinedBackupWindow:
+    Description: 'The daily time range in UTC during which you want to create automated backups.'
+    Type: String
+    Default: '09:54-10:24'
+  DefinedMaintenanceWindow:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+    Default: 'sat:07:00-sat:07:30'
+  DBBackupRetentionPeriod:
+    Description: 'The number of days to keep snapshots of the database.'
+    Type: Number
+    MinValue: 0
+    MaxValue: 35
+    Default: 7
+  LogRetention:
+    Type: Number
+    Description: The length of time (in days) that you wish CloudWatch to retain the RDS logs for.
+    Default: 60
+    AllowedValues: [1,3,5,7,14,30,60,90,120,150,180,365,400,545,731,1827,3653]
+  RDSKmsKey:
+    Type: String
+    Default: "736af269-ff1b-4310-a72a-b312627ab7cc"
+    Description: Enter KmsKey  only if the dataClassification is Restricted. And the KmsKey for Restricted dataClassification is CloudHSMKey. 
+  EnhancedMonitoringInterval:
+    Type: Number
+    Description: The interval, in seconds, between points when Enhanced Monitoring metrics are collected for the DB instance.  To disable colecting Enhanced Monitoring metrics you should specify 0.
+    AllowedValues: [0,1,5,10,15,30,60]
+    Default: 60
+  TimeZone:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+    Default: 'Eastern Standard Time'
+    AllowedValues: ['Eastern Standard Time', 'Central Standard Time', 'Pacific Standard Time', 'UTC']
+  costCenterParameter:
+    Description: The value for the costCenter tag.
+    Type: String
+  uniqueIDParameter:
+    Description: The value for the uniqueID
+    Type: String
+  dataClassificationParameter:
+    Description: The value for the dataClassificationParameter tag.
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: internal
+  supportGroupParameter:
+    Description:  Enter a value only if this is Cloud Native ( Containerize/Modernize) AWS account. Migrate accounts will use default values.
+    Type: String
+    Default: DBA-SQL Server Support
+  changeGroupParameter:
+    Description: Enter a value only if this is Cloud Native (Containerize/Modernize) AWS account. Migrate accounts will use default values.
+    Type: String
+    Default: DBA-SQL Server Support
+  appCriticalityParameter:
+    Type: String
+    Description: The value for the appCriticality tag
+    AllowedValues: ['MV', 'MC', 'BC', 'BE', 'B']
+    Default: B
+  pciIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  soxIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  cuiIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  phiIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  appSupportEmail:
+    Type: String
+    Description: The app support group email
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+  DeltaPrivatePrefixList:
+    Description: On Prem manage prefix list. For Migrate Accounts the default works . For Containerize will need input from VPC managed prefix lists.
+    Type: String
+    Default: pl-05a3c87e010904082
+  SnowSNSTopic:
+    Type: String
+    Default: RDS-Alerts-All
+    Description: Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore. The SNS Topic for sending alarms to lambda to forward it further to snow. Default should work in all cases.  
+Mappings:
+  AZMap:
+    privatesubnet1aid:
+      "az": "us-east-1a"
+    privatesubnet2aid:
+      "az": "us-east-1b"
+    privatesubnet3aid:
+      "az": "us-east-1c"
+    datasubnet1aid:
+      "az": "us-east-1a"
+    datasubnet1bid:
+      "az": "us-east-1f"
+    datasubnet1cid:
+      "az": "us-east-1c"
+  EnvironmentMap:
+    sandbox:
+      "abbreviation": "l"
+      "shortname": "sbx"
+    development:
+      "abbreviation": "d"
+      "shortname": "dev"
+    systems-integration:
+      "abbreviation": "i"
+      "shortname": "si"
+    production:
+      "abbreviation": "p"
+      "shortname": "prd"
+  RegionMap:
+    us-east-1:
+      "abbreviation": "NV"
+    us-east-2:
+      "abbreviation": "OH"
+
+Conditions:
+  EnhancedMonitoringDisabled: !Equals
+    - !Ref EnhancedMonitoringInterval
+    - 0
+  isDevelopmentAccount: !Equals
+    - !Ref Environment
+    - development
+  isSIorPRDAccount: !Not
+    - Condition: isDevelopmentAccount
+  StandardEdition: !Equals
+    - !Ref Edition
+    - Standard
+  EnterpriseEdition: !Equals
+    - !Ref Edition
+    - Enterprise
+  isGP2: !Equals
+    - !Ref StorageType
+    - 'gp2'
+  #Following conditions ensure that we create alarms only for migrate accounts and not for containarize
+  isDevMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 108101204381
+  isSiMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 934408279768
+  isPrdMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 022190431571  
+  
+  #Air4 Accounts
+  isSiVsMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 665733732159
+  isPrdVsMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 107371347474
+
+  #Endevour Accounts
+  isDev9eMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 012898326796
+  isSi9eMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 356731337321
+  isPrd9eMigrate: !Equals
+    - !Ref AWS::AccountId
+    - 262358483542
+
+  isMigrate: !Or
+    - Condition: isDevMigrate
+    - Condition: isSiMigrate
+    - Condition: isPrdMigrate
+    - Condition: isSiVsMigrate
+    - Condition: isPrdVsMigrate
+    - Condition: isDev9eMigrate
+    - Condition: isSi9eMigrate
+    - Condition: isPrd9eMigrate
+
+  isMigrateSiPrd: !And
+    - Condition: isSIorPRDAccount
+    - Condition: isMigrate 
+   
+  # dataClassification: internal or confidential a CMK to be generated for each RDSKey  ( rds-<blockcode>-CMK )
+  # dataClassification: restricted a CloudHSM key to be created outside of CFT
+  # dataClassification: public – Default AWS RDS key 
+  InternaldataClassification: !Equals [!Ref dataClassificationParameter, 'internal']
+  ConfidentialdataClassification: !Equals [!Ref dataClassificationParameter, 'confidential']
+  IsdataClassificationInternalOrConfidential: !Or [Condition: InternaldataClassification, Condition: ConfidentialdataClassification ]
+  IsdataClassificationRestricted: !Equals [!Ref dataClassificationParameter, 'restricted']
+
+Resources:
+  CMKforRDSUserSecrets:
+    Type: AWS::ServiceCatalog::CloudFormationProvisionedProduct
+    Properties:
+      ProductName: "KMS CMK"
+      ProvisionedProductName: !Sub
+        - sql-${Blockcode}-${env}-${DBNumber}-dbuser-secret-cmk
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+          }      
+      ProvisioningArtifactName: "2.0"
+      ProvisioningParameters:
+        - Key: KEYNAME
+          Value: !Sub
+            - sql-${Blockcode}-${env}-${DBNumber}-dbuser-secret-cmk
+            - {
+              env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+              }           
+        - Key: KEYACCESS1
+          Value: DeveloperPowerUserProvisioner
+        - Key: KEY1PERMISSIONS
+          Value: Both
+        - Key: KEYACCESS2
+          Value: DBAOperator
+        - Key: KEY2PERMISSIONS
+          Value: Both
+        - Key: KEYACCESS3
+          Value: AWSRDSCustomSQLServerInstanceRole
+        - Key: KEY3PERMISSIONS
+          Value: Both
+        - Key: KEYACCESS4
+          Value: !Ref LambdaExecutionRole
+        - Key: KEY4PERMISSIONS
+          Value: Both
+        - Key: SERVICENAME
+          Value: "lambda.amazonaws.com"
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'MSSQL RDS Security Group for ${Blockcode}'
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        Description: This ingress rule allows pl-05a3c87e010904082O pnet to communicate correctly over port 27101
+        SourcePrefixListId: !Ref DeltaPrivatePrefixList
+        SourceSecurityGroupId: !Ref RDSCustomSecurityGroup
+        FromPort: 1433
+        ToPort: 1433
+      VpcId: '{{resolve:ssm:/delta/vpc/vpcid:1}}'
+      Tags:
+        - Key: "Name"
+          Value: !Sub
+           - ${reg}-${env}-${os}${tier}-${Blockcode}
+           -  {
+              reg:  !FindInMap [RegionMap, !Ref "AWS::Region", "abbreviation"],
+              env:  !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+             os: 'L',     # L|W     L=LINUX,W=Windows
+             tier: 'D'   # W|A|D   W=Web,A=App,D=Database
+             }
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail 
+
+  RDSCustomSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'MSSQL RDS Custom with OnPremises access Security Group for ${Blockcode}'
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        Description: This ingress rule allows pl-05a3c87e010904082O pnet to communicate correctly over port 27101
+        SourcePrefixListId: !Ref DeltaPrivatePrefixList
+        CidrIp: "10.38.2.72/32"
+        FromPort: 1433
+        ToPort: 1433
+      VpcId: '{{resolve:ssm:/delta/vpc/vpcid:1}}'
+      Tags:
+        - Key: "Name"
+          Value: !Sub
+           - ${reg}-${env}-${os}${tier}-${Blockcode}
+           -  {
+              reg:  !FindInMap [RegionMap, !Ref "AWS::Region", "abbreviation"],
+              env:  !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+             os: 'L',     # L|W     L=LINUX,W=Windows
+             tier: 'D'   # W|A|D   W=Web,A=App,D=Database
+             }
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: confidential
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail 
+
+  DBSecret:
+    DependsOn:
+      - CMKforRDSUserSecrets
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub
+        - sql-${Blockcode}-${env}-${DBNumber}-credentials
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+          }
+      Description: !Sub 'This is the secret for the MSSQL RDS instance created for the database by CFT stack ${AWS::StackId}'
+      KmsKeyId: !GetAtt 'CMKforRDSUserSecrets.Outputs.CMKARN'
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "db_admin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludeCharacters: '\\"$`~][{^}*.''&()+-_;:#></@ '
+      Tags:
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityParameter
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+
+  DBSecretPolicy:
+    DependsOn:
+      - LambdaExecutionRole
+    Type: AWS::SecretsManager::ResourcePolicy
+    Properties:
+      BlockPublicPolicy: True
+      SecretId: !Ref DBSecret
+      ResourcePolicy:
+        Version: '2012-10-17'
+        Statement:
+        
+        - Resource: !Ref DBSecret
+          Action:
+            - secretsmanager:GetSecretValue
+            - secretsmanager:DescribeSecret 
+            - secretsmanager:PutSecretValue 
+            - secretsmanager:ListSecrets 
+            - secretsmanager:TagResource
+            - secretsmanager:UntagResource 
+            - secretsmanager:UpdateSecret 
+            - secretsmanager:DeleteSecret 
+              
+          Effect: Allow
+          Principal:
+            AWS: 
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/DeveloperPowerUserProvisioner
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/SystemBuilder
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/DBAOperator
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/delegate-admin-Custom-RDS-MsSQLRole-${DBNumber}
+        - Resource: !Ref DBSecret
+          Action:
+            - secretsmanager:GetSecretValue
+            - secretsmanager:DescribeSecret 
+            - secretsmanager:PutSecretValue 
+            - secretsmanager:ListSecrets 
+            - secretsmanager:TagResource
+            - secretsmanager:UntagResource 
+            - secretsmanager:UpdateSecret 
+            - secretsmanager:DeleteSecret 
+          Effect: Deny
+          Principal: 
+            AWS: '*'
+          Condition:
+            StringNotEquals: 
+              aws:PrincipalArn:
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/DeveloperPowerUserProvisioner
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/DBAOperator
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/delegate-admin-Custom-RDS-MsSQLRole-${DBNumber}
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/SystemBuilder
+  DBSubnetGroup:
+    Properties:
+      DBSubnetGroupDescription: !Sub ${AWS::StackName} DB subnet group
+      SubnetIds:
+        - !Sub '{{resolve:ssm:/delta/vpc/${RDSSubnetGroupSubnet1SSMParameter}:1}}'
+        - !Sub '{{resolve:ssm:/delta/vpc/${RDSSubnetGroupSubnet2SSMParameter}:1}}'
+        - !Sub '{{resolve:ssm:/delta/vpc/${RDSSubnetGroupSubnet3SSMParameter}:1}}'
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: engineVersion
+          Value: !Sub "mssql-${EngineVersion}"
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_SQLSERVERDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail        
+    Type: "AWS::RDS::DBSubnetGroup"
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub delegate-admin-Custom-RDS-MsSQLRole-${DBNumber}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-delta-custom-rds-mssql-lambda-secret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - secretsmanager:GetRandomPassword
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                Resource: "*"
+        - PolicyName: !Sub ${AWS::StackName}-delta-custom-rds-mssql-lambda-ec2
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DetachNetworkInterface
+                Resource: "*"
+        - PolicyName: !Sub ${AWS::StackName}-delta-custom-rds-mssql-lambda-s3-bucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - s3:Get*
+                  - s3:PutObject
+                Resource: "*"
+        - PolicyName: !Sub ${AWS::StackName}-delta-custom-rds-mssql-lambda-rds
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 'kms:*'
+                Resource: "*"
+              - Effect: "Allow"
+                Action: 
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceAttribute
+                  - ec2:DescribeRegions
+                  - ec2:DescribeSnapshots
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeIamInstanceProfileAssociations
+                  - ec2:DisassociateIamInstanceProfile
+                  - ec2:AssociateIamInstanceProfile
+                  - ec2:ReplaceIamInstanceProfileAssociation
+                  - ec2:TerminateInstances
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                  - ec2:RebootInstances
+                Resource: "*"
+              - Effect: "Allow"
+                Action: 'rds:*'
+                Resource: "*"
+              - Effect: "Allow"
+                Action: "iam:PassRole"
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/AWSRDSCustomSQLServerInstanceRole
+              - Sid: "ValidateIamRole"
+                Effect: "Allow"
+                Action: 'iam:SimulatePrincipalPolicy'
+                Resource: "*"
+              - Sid: "CreateCloudTrail"
+                Effect: "Allow"
+                Action: 
+                  - cloudtrail:CreateTrail
+                  - cloudtrail:StartLogging
+                Resource: arn:aws:cloudtrail:*:*:trail/do-not-delete-rds-custom-*
+              - Sid: "CreateS3Bucket"
+                Effect: "Allow"
+                Action: 
+                  - s3:CreateBucket
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketObjectLockConfiguration
+                  - s3:PutBucketVersioning
+                Resource: arn:aws:s3:::do-not-delete-rds-custom-*
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      PermissionsBoundary: !Join [":", ["arn:aws:iam:", !Ref AWS::AccountId, "policy/cft-developer-boundary-policy"] ]
+  
+  CustomRDSLambda:
+    DependsOn:
+      - DBSecret
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Lambda code to create RDS Custom for MSSQL Server.
+      Code:
+        S3Bucket: !Ref S3Bucket
+        S3Key: !Ref S3Key
+      Architectures:
+        - x86_64
+      FunctionName: !Sub ${AWS::StackName}-CustomRDSMsSQLServer
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt 
+          - LambdaExecutionRole
+          - Arn
+      Runtime: python3.8
+      Timeout: '240'
+
+  CustomMsSQLServer:
+    DependsOn:
+      - CustomRDSLambda
+      - CMKforRDSUserSecrets
+    Type: Custom::RDSCustomMsSQL
+    Version: "1.0"
+    Properties:
+      ServiceToken: !GetAtt CustomRDSLambda.Arn
+      DBIdentifier: !Sub
+        - sql-${Blockcode}-${env}-${DBNumber} 
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "shortname"]
+          } 
+      DBSecret: !Ref DBSecret
+      DBAllocatedStorage: !Ref DBAllocatedStorage
+      DBEngine: !If [StandardEdition, custom-sqlserver-se, custom-sqlserver-ee]
+      Iops: !If [isGP2, !Ref AWS::NoValue, !Ref Iops]
+      EngineVersion: !Ref EngineVersion
+      StorageType: !Ref StorageType
+      RDSKmsKey: !Ref RDSKmsKey
+      AvailabilityZone: !If
+        - isDevelopmentAccount
+        - !FindInMap [AZMap, !Ref RDSInstanceSubnetSSMParameter, "az"]
+        - !Ref AWS::NoValue
+      DBSubnetGroup: !Ref DBSubnetGroup
+      EC2SecurityGroupIds: !GetAtt EC2SecurityGroup.GroupId
+      DBInstanceClass: !Ref DBInstanceClass
+      CustomIAMInstanceProfile: !Ref CustomIAMInstanceProfile
+      DefinedBackupWindow: !Ref DefinedBackupWindow
+      DefinedMaintenanceWindow: !Ref DefinedMaintenanceWindow
+      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+      Tags:
+        - Key: alias
+          Value: !Sub
+            - ${prefix}${DBNumber}.${hostedzonename}
+            - {
+                prefix: 'sql-custom',
+                hostedzonename: '{{resolve:ssm:/delta/r53/hostedzonename:1}}'
+              }
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value:
+            'Fn::Transform':
+               Name: 'String'
+               Parameters:
+                 InputString: !Ref Blockcode
+                 Operation: Upper
+        - Key: appCriticalityTier
+          Value: !Ref appCriticalityParameter
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail

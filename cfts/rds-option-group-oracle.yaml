@@ -1,0 +1,25 @@
+AWSTemplateFormatVersion: 2010-09-09 
+Description: Template for Delta Default RDS Option Group for Oracle RDS instances
+
+Resources:
+
+    OracleOptionGroup:
+        Type: 'AWS::RDS::OptionGroup'
+        Properties:
+            OptionGroupDescription: "Delta default Oracle 19 Options"
+            EngineName: oracle-ee
+            MajorEngineVersion: '19'
+            OptionConfigurations:
+                - OptionName: 'NATIVE_NETWORK_ENCRYPTION'
+            Tags:
+                - Key: Name
+                  Value: Default Oracle19 Option Group
+        
+    OracleOptionsParameter:
+        Type: AWS::SSM::Parameter
+        Properties:
+            Name: /delta/rds/optiongroup/oracle
+            Type: String
+            Value: !Ref OracleOptionGroup
+            Tier: Standard
+            Description: SSM Parameter for the name of the Oracle RDS Option Group that all Oracle RDS instances should use.

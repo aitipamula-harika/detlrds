@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for Delta's RDS public access check Config Rules, Remediation, and SNS Notifications
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: The S3 bucket name containing the python zip file for the custom lambda function.
+    Default: dvl-app-services-cft
+  
+  S3ObjectPublicAccessCheckName:
+    Type: String
+    Default: DeltaRDSConfigRules/rdk_rds_public_access_check.zip
+    Description: name of the file for the custom rds rule to check Public access.
+  
+  PublicAccessCheckRemediationState:
+    Type: String
+    Description: is remediation on(true) or off(false).
+    Default: false
+    AllowedValues:
+      - true
+      - false
+
+Resources:    
+  ConfigPermissionToCallPublicAccessLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+          - LambdaRDSPublicAccessComplianceCheck
+          - Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "config.amazonaws.com"  
+  
+  LambdaRDSPublicAccessComplianceCheck:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: rdk_rds_public_access_check.lambda_handler
+      Runtime: python3.8
+      Timeout: 60
+      MemorySize: 128
+      Role:
+        Fn::GetAtt:
+          - CustomLambdaExecutionRole
+          - Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref S3ObjectPublicAccessCheckName
+
+  CustomLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service:
+            - "lambda.amazonaws.com"
+          Action:
+          - "sts:AssumeRole"
+      Description: "IAM Role for RDS Custom Config Lambda Function."
+      RoleName: "delegate-admin-config-lambda-rds-role1"
+      Policies: 
+        - PolicyName: delegate-admin-config-rds-describe
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow      
+                Action:
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBClusters
+                  - config:PutEvaluations
+                Resource: "*"
+      ManagedPolicyArns:
+          - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      PermissionsBoundary:
+       Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+
+  RDSCustomConfigPublicAccessRule:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rds-public-access-compliance-check
+      Description: Checks whether public access is disabled on RDS instance.
+      Scope:
+        ComplianceResourceTypes:
+            - "AWS::RDS::DBInstance"
+      Source:
+        Owner: "CUSTOM_LAMBDA"
+        SourceDetails:
+          -
+            EventSource: "aws.config"
+            MessageType: "ConfigurationItemChangeNotification"
+        SourceIdentifier: !GetAtt LambdaRDSPublicAccessComplianceCheck.Arn
+    DependsOn: ConfigPermissionToCallPublicAccessLambda
+  
+  PublicAccessRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      Automatic: !Ref PublicAccessCheckRemediationState
+      ConfigRuleName: !Ref RDSCustomConfigPublicAccessRule
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 30
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/delegate-admin-ssm-automation-rds-config-remediation
+        ResourceID:
+          ResourceValue:
+            Value: RESOURCE_ID
+      TargetId: rds-config-remediation-document-python1
+      TargetType: SSM_DOCUMENT
+
+  
+  

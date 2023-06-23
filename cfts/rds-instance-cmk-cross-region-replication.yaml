@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::SecretsManager-2020-07-23
+Description: 'State: Database Secret'
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'CMK Details '
+      Parameters:
+      - CMKAlias
+      - SourceRDSUsersCMKKeyArn
+      - Blockcode
+    - Label:
+        default: 'AWS KMS CMK Tagging Parameters'
+      Parameters:
+      - costCenter
+      - uniqueID
+      - dataClassification
+      - supportGroup
+      - changeGroup
+      - appCriticality
+      - pciIndicator
+      - soxIndicator
+      - cuiIndicator
+      - phiIndicator
+     
+Parameters:
+  CMKAlias:
+    Type: String
+    Description: Alias of the CMK for Dbuser Secret from Region 1
+  Blockcode:
+    Type: String
+    Description: Enter the 10 character Blockcode (in Uppercase). This must be same as the Source RDS Instane  Blockcode.
+    AllowedPattern: ^[A-Z0-9]{10}$
+    ConstraintDescription: The Blockcode must entered in uppercase  and must be 10 characters long
+    
+  SourceRDSUsersCMKKeyArn:
+    Type: String
+    Description: This is the KeyArn for Source RDS Users  CMK created in Region us-east-1 .
+    
+  costCenter:
+    Description: The value for the costCenter tag.
+    Type: String
+    
+  uniqueID:
+    Description: The value for the iServerID
+    Type: String
+    
+  supportGroup:
+    Description: The value for the supportGroup.
+    Type: String
+    Default: DBA - Oracle Support 
+  changeGroup:
+    Description: The value for the changeGroup
+    Type: String
+    Default: DBA - Oracle Support
+  drTier:
+    Type: String
+    Description: This must be same as the Source Database Tag value.
+    AllowedValues: ['MV', 'MC', 'BC', 'BE', 'B']
+    
+  pciIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+    
+  soxIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+    
+  cuiIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+    
+  phiIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+    
+
+Resources:
+  CMKforRDSUserSecrets:
+    Type: AWS::ServiceCatalog::CloudFormationProvisionedProduct
+    Properties:
+      ProductName: "KMS REPLICA CMK"
+      ProvisionedProductName: !Ref CMKAlias
+      ProvisioningArtifactName: "1.0"
+      ProvisioningParameters:
+        - Key: KEYNAME
+          Value: !Ref CMKAlias
+        - Key: KEYARN
+          Value: !Ref SourceRDSUsersCMKKeyArn
+        - Key: KEYACCESS1
+          Value: DeveloperPowerUserProvisioner
+        - Key: KEY1PERMISSIONS
+          Value: Both
+        - Key: KEYACCESS2
+          Value: DBAOperator
+        - Key: KEY2PERMISSIONS
+          Value: Decrypt
+        - Key: SERVICENAME
+          Value: ""
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroup
+        - Key: costCenter
+          Value: !Ref costCenter
+        - Key: dataClassification
+          Value: Confidential
+        - Key: uniqueID
+          Value: !Ref uniqueID
+        - Key: supportGroup
+          Value: !Ref supportGroup
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTier
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+Outputs:
+  SecretArnforCMKforRDSUsers:
+    Description: This is the CMK for cross-region read replica for ${SourceDBInstanceName} RDS instance in us-east-1.
+    Value: !GetAtt CMKforRDSUserSecrets.Outputs.CMKARN
+    Export: 
+     Name: 
+      !Sub ${AWS::StackName}-SecretArnforCMKforRDSUsers       
+            
+  

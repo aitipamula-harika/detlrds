@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template to Create event rule and lambda to execute RDS post lambda script
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'Lambda Parameters'
+      Parameters:
+      - PrivateSubnetA
+      - PrivateSubnetB
+      - PrivateSubnetC
+      - LambdaCodeS3BucketName
+      - LambdaCodeZipFileName
+Parameters:
+  PrivateSubnetA:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  PrivateSubnetB:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the second DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1bid
+  PrivateSubnetC:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the third DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1cid
+  LambdaS3BucketName:
+    Type: String
+    Description: The lambda package uploaded s3 bucket name
+    Default: delta-postcfg-artifacts-us-east-1
+  LambdaZipFileName:
+    Type: String
+    Description: The lambda source code package file name
+    Default: database/lambdas/awslambdapkg_rds_mssql_post.zip
+Resources:
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: delegate-admin-rds-mssql-postscript-lambda-execution-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "delta-rds-mssql-post-script-secret"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - secretsmanager:GetRandomPassword
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                Resource: "*"
+        - PolicyName: "delta-rds-mssql-post-script-ec2"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DetachNetworkInterface
+                Resource: "*"
+        - PolicyName: "delta-rds-mssql-post-script-s3-bucket"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - s3:Get*
+                Resource: "*"
+        - PolicyName: "delta-rds-mssql-post-script-cli"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Principal:
+                  Service:
+                  - lambda.amazonaws.com
+                Action:
+                  - sts:AssumeRole
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      PermissionsBoundary: !Join [":", ["arn:aws:iam:", !Ref AWS::AccountId, "policy/cft-developer-boundary-policy"] ]
+  #Post Lambda
+  RunShellScript:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: rds-mssql-post-script
+      Handler: lambda_function.lambda_handler
+      Environment:
+        Variables:
+          LD_LIBRARY_PATH: /var/task
+          ODBCSYSINI: /var/task/msodbcsql17/etc
+      VpcConfig: 
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Sub '{{resolve:ssm:/delta/vpc/${PrivateSubnetA}:1}}'
+          - !Sub '{{resolve:ssm:/delta/vpc/${PrivateSubnetB}:1}}'
+          - !Sub '{{resolve:ssm:/delta/vpc/${PrivateSubnetC}:1}}'
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt 
+        - LambdaExecutionRole
+        - Arn
+      Code:
+        S3Bucket: !Ref LambdaS3BucketName
+        S3Key: !Ref LambdaZipFileName 
+      Runtime: python3.8
+      Timeout: '240'
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupName: 'rds-mssql-post-script-lambda-sg'
+      GroupDescription: 'SG for the lambda that runs the Secrets Manager RDS rotation process'
+      VpcId: '{{resolve:ssm:/delta/vpc/vpcid:1}}'
+      SecurityGroupIngress:
+        - IpProtocol: "-1"
+          CidrIp: 10.0.0.0/8
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0

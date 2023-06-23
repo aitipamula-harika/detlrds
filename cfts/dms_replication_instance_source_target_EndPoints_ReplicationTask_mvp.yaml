@@ -1,0 +1,488 @@
+ 
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Description": "AWS CloudFormation Template for creating an Amazon DMS  instance:
+  
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'Common Replication Parameters '
+      Parameters:
+      - BlockCode
+      - Environment
+      - DMSSubnetGroupSubnet1SSMParameter
+      - DMSSubnetGroupSubnet2SSMParameter
+      - DMSSubnetGroupSubnet3SSMParameter
+      - ReplicationInstanceClass
+      - RepplicationInstanceNumber
+      - AllocatedStorage
+      - ReplicationInstanceTypes
+      - AvailabilityZone
+      - EngineVersion
+      - ParallelLoadThreads
+      - ParallelLoadBufferSize
+      - ParallelLoadQueuesPerThread
+      - MaxFullLoadSubTasks
+      - DeltaPrivatePrefixList
+    - Label:
+        default: 'AWS Source Endpoint Parameters'
+      Parameters:
+      - SourceDatabaseEngine
+      - SourceDBServerName
+      - SourceASM
+      - SourceDatabaseName
+      - SourceDatabaseServiceName
+      - SourceDatabasePort
+      - SourceDatabaseSchemaName
+      - SourceDatbaseDMSUserSecretArn
+    - Label:
+        default: 'AWS Target Endpoint Parameters'
+      Parameters:
+      - TargetDatabaseEngine
+      - TargetDatabaseInstanceIdentifierName
+      - TargetDBServerName
+      - TargetDatabaseName
+      - TargetDatabasePort
+      - TargetDatabaseSchemaUser
+      - TargetDatabaseSchemaUserPassword
+    - Label:
+       default: 'AWS Tags'
+      Parameters:
+      - costCenterParameter
+      - iServerIDParameter
+      - supportGroupParameter
+      - changeGroupParameter
+     
+   
+Parameters:
+  Blockcode:
+    Type: String
+    Description: Enter the block code for the Application/Target database instance 
+    AllowedPattern: ^[a-zA-Z0-9]{10}$
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+  RepplicationInstanceNumber:
+    Default: 01
+    Description: This will allow creation of mulitple replication instances for this Database migration. 
+    Type: Number
+  ReplicationInstanceClass:
+    Default: dms.c5.xlarge
+    AllowedValues: ['dms.c5.xlarge','dms.c5.2xlarge','dms.c5.4xlarge','dms.c5.9xlarge','dms.c5.12xlarge','dms.c5.18xlarge','dms.c5.24xlarge','dms.r5.large','dms.r5.xlarge','dms.r5.2xlarge','dms.r5.4xlarge','dms.r5.8xlarge','dms.r5.12xlarge','dms.r5.16xlarge','dms.r5.24xlarge']
+    Type: String
+    Description: Choose replication instance from the drop down values.
+    ConstraintDescription: Must select a valid DMS Instance type.
+  AllocatedStorage:
+    Default: '200'
+    Description: The size of the Replication instance (GiB)
+    Type: Number
+    MinValue: '20'
+    MaxValue: '800'
+    ConstraintDescription: must be between 20 and 1000 GiB.
+  EngineVersion:
+    Default: '3.4.4'
+    AllowedValues: ['3.4.4', '3.4.5']
+    Description: Db EngineVersion
+    Type: String
+  AvailabilityZone: 
+    Type: String
+    AllowedValues: ['us-east-1a','us-east-1b','us-east-1c', us-west-2a, us-west-2b, us-west-2c]
+    Default: us-east-1a
+    Description: Please enter the availability zone where the DMS replication instance is created. This should be same as target RDS .
+  DMSSubnetGroupSubnet1SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  DMSSubnetGroupSubnet2SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the second DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1bid
+  DMSSubnetGroupSubnet3SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the third DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1cid
+  SourceDatabaseEngine:
+   Description: Enter Source database engine. For example Oracle, Sqlserver etc.
+   Type: String
+   AllowedValues: ['oracle','sqlserver','db2 luw','sybase','IBM Db2 for z/OS']
+  SourceDBServerName:
+   Description: Database DNS alias/App Friendly Name/Hostname to connect to the source database. This could be local standby or primary database . Ensure that  this is the database that DMS will connect to erform migration.  
+   Type: String
+  SourceASM:
+   Description: If the source database is Oracle then check if it is configured to use ASM. 
+   Type: String
+   AllowedValues: ['Y','N']
+   ConstraintDescription: Must be 'Y' or 'N'
+  SourceDatabaseServiceName: 
+   Description: Enter source  database service name or pluggable dbname for Oracle only . Enter dbname for all other db engines.
+   Type: String
+  SourceDatabaseName: 
+   Description: Enter source Database Instance name  for all other DB Engines and database  name for Oracle.
+   Type: String
+  SourceDatabasePort:
+   Description: Listener port (TCP) to connect to the above Source Database
+   Type: Number
+  SourceDatabaseSchemaName: 
+   Description: Enter source  database schema owner username. 
+   Type: String
+   AllowedPattern: ^[A-Z0-9]*$
+   ConstraintDescription: Entered values must  be UPPERCASE
+  SourceDatbaseDMSUserSecretArn:
+   Description: Please enter Secret ARN for dms user 
+   Type: String
+  TargetDatabaseEngine:
+   Description: Enter Source database engine. For example Oracle, Sqlserver etc.
+   Type: String
+   AllowedValues: ['oracle','sqlserver','postgres']
+  TargetDatabaseInstanceIdentifierName:
+   Description: Enter Target  Database Instance identifier name.
+   Type: String
+  TargetDBServerName:
+   Description: Target Endpoint or CNAME . 
+   Type: String
+  TargetDatabaseName: 
+   Description: Enter target  Dbname .
+   Type: String
+  TargetDatabasePort:
+   Description: Listener port (TCP) to connect to the above Source Database
+   Type: Number
+  TargetDatabaseSchemaUser: 
+   Description: Enter Target  database schema owner Username .
+   Type: String
+  TargetDatabaseSchemaUserPassword:
+   Description: Please enter password for the User Id to create objects in the database.
+   Type: String
+   NoEcho: true
+  costCenterParameter:
+    Description: The value for the costCenter tag .
+    Type: String
+    Default: TEST
+  iServerIDParameter:
+    Description: The value for the iServerID tag
+    Type: String
+    Default: TEST
+  supportGroupParameter:
+    Description: The value for the supportGroup tag
+    Type: String
+    Default: DBA Oracle Suppport
+  changeGroupParameter:
+    Description: The value for the assignmentGroup tag
+    Type: String
+    Default: DBA Oracle Suppport
+  DeltaPrivatePrefixList:
+    Description: On Prem manage prefix list. For Migrate Accounts the default works . For Containerize will need input from VPC managed prefix lists.
+    Type: String
+    Default: pl-05a3c87e010904082
+  AWSRegion:
+    Type: String
+    Description: Region flag is used to determine which DeltaPrivatePrefixList to use.
+    Default: us-east-1
+    AllowedValues: [us-east-1, us-west-2]
+Mappings:
+  EnvironmentMap:
+    sandbox:
+      "abbreviation": "snd"
+    development:
+      "abbreviation": "dev"
+    systems-integration:
+      "abbreviation": "si"
+    production:
+      "abbreviation": "prd"
+  RegionMap:
+    us-east-1:
+      "abbreviation": "NV"
+    us-east-2:
+      "abbreviation": "OH"
+    us-west-2:
+      "abbreviation": "OR"
+  AZMap:
+    privatesubnet1aid:
+      "az": "us-east-1a"
+    privatesubnet2aid:
+      "az": "us-east-1b"
+    privatesubnet3aid:
+      "az": "us-east-1c"
+    datasubnet1aid:
+      "az": "us-east-1a"
+    datasubnet1bid:
+      "az": "us-east-1f"
+    datasubnet1cid:
+      "az": "us-east-1c"
+    datasubnet1aid:
+      "az": "us-west-2a"
+    datasubnet1bid:
+      "az": "us-west-2c"
+    datasubnet1cid:
+      "az": "us-west-2b"
+
+Conditions:
+  SourceASMTrue: !Equals
+    - !Ref SourceASM
+    - 'Y'
+  SslModeOff: !Equals
+    - !Ref TargetDatabaseEngine
+    - 'oracle'
+  iSRegionTwo: !Equals [!Ref AWSRegion, us-west-2]
+
+Resources:
+  # The resource below creates an EC2 Security Group which is then used when creating the DMS Replication Instance.
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+     GroupDescription: 'Oracle EC2 Security Group for mig-dev-rep-inst'
+     SecurityGroupIngress:
+      - IpProtocol: tcp
+        Description: This ingress rule allows pl-05a3c87e010904082Opnet to communicate correctly over port 27101
+        SourcePrefixListId: !If
+        - iSRegionTwo
+        - pl-0f41ed4a1130c377f
+        - !Ref DeltaPrivatePrefixList
+        FromPort: !Ref SourceDatabasePort
+        ToPort: !Ref SourceDatabasePort
+     VpcId: '{{resolve:ssm:/delta/vpc/vpcid:1}}'
+     Tags:
+       -
+         Key: "Name"
+         Value: !Sub
+          -  ${reg}-${env}-LA-mig-dev-rep-inst
+          -  {
+             reg:  !FindInMap [RegionMap, !Ref "AWS::Region", "abbreviation"],
+             env:  !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+             }
+          
+  # The resource below creates a DB Subnet Group that is used when creating the RDS DB Instance.
+  # The DB Subnet Group utilizes the current accounts subnets which are specified inside SSM parameters.
+  DmsRepSubnetgroup:
+   Type: AWS::DMS::ReplicationSubnetGroup
+   Properties:
+     ReplicationSubnetGroupDescription: DMS Replication Instance Subnet Group
+     SubnetIds:
+       - !Sub '{{resolve:ssm:/delta/vpc/${DMSSubnetGroupSubnet1SSMParameter}:1}}'
+       - !Sub '{{resolve:ssm:/delta/vpc/${DMSSubnetGroupSubnet2SSMParameter}:1}}'
+       - !Sub '{{resolve:ssm:/delta/vpc/${DMSSubnetGroupSubnet3SSMParameter}:1}}'
+  
+ # The CMK for DMS   
+  CMKforDMS:
+    Type: AWS::ServiceCatalog::CloudFormationProvisionedProduct
+    Properties:
+      ProductName: "KMS CMK"
+      ProvisionedProductName: !Sub rds-${Blockcode}-cmk-${RepplicationInstanceNumber}
+      ProvisioningArtifactName: "2.0"
+      ProvisioningParameters:
+        - Key: KEYNAME
+          Value: !Sub rds-${Blockcode}-cmk-${RepplicationInstanceNumber}
+        - Key: KEYACCESS1
+          Value: DeveloperPowerUserProvisioner
+        - Key: KEY1PERMISSIONS
+          Value: Both
+        - Key: SERVICENAME
+          Value: "dms.amazonaws.com"
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: internal
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value: !Ref Blockcode
+
+  # The resource below creates a Oracle RDS instance and a single DB instance.
+  DmsRepInstance:
+   Type: AWS::DMS::ReplicationInstance
+   Properties:
+     ReplicationInstanceClass: !Ref ReplicationInstanceClass
+     AllocatedStorage: !Ref AllocatedStorage
+     AllowMajorVersionUpgrade: false
+     AutoMinorVersionUpgrade: true
+     EngineVersion: !Ref EngineVersion  
+     KmsKeyId: !GetAtt 'CMKforDMS.Outputs.CMKARN'
+     MultiAZ: false
+     PreferredMaintenanceWindow: wed:02:00-wed:05:00
+     PubliclyAccessible: false
+     AvailabilityZone: !Ref AvailabilityZone
+     ReplicationInstanceIdentifier:  !Sub 
+        - dms-repl-${Blockcode}-inst-${env}-${RepplicationInstanceNumber}
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+          }
+     ReplicationSubnetGroupIdentifier: !Ref DmsRepSubnetgroup
+     VpcSecurityGroupIds:
+        - !Ref EC2SecurityGroup
+     Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: internal
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value: !Ref Blockcode
+  DMSSourceEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointType: source
+      EngineName: !Ref SourceDatabaseEngine
+      DatabaseName: !Ref SourceDatabaseServiceName
+      EndpointIdentifier: !Sub
+        -  source-${Blockcode}-${env}-endpoint
+        -  {
+           env: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+           }
+      ExtraConnectionAttributes: !If 
+        - SourceASMTrue
+        - !Sub useLogMinerReader=N;useBfile=Y;asm_user=dms_user;asm_server=${SourceDBServerName}:${SourceDatabasePort}/+ASM;exposeViews=true;
+        - useLogMinerReader=N;useBfile=Y;exposeViews=true;
+      Password:  !Sub '{{resolve:secretsmanager:${SourceDatbaseDMSUserSecretArn}}}'
+      Port: !Ref SourceDatabasePort 
+      ServerName: !Ref  SourceDBServerName
+      KmsKeyId: !GetAtt 'CMKforDMS.Outputs.CMKARN'
+      SslMode: none
+      Username: dms_user
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: internal
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value: !Ref Blockcode
+  DMSTargetEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointType: target
+      EngineName: !Ref TargetDatabaseEngine
+      DatabaseName: !Ref TargetDatabaseName
+      EndpointIdentifier: !Sub
+        - target-${Blockcode}-${env}-endpoint
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+          }
+      ServerName: !Ref TargetDBServerName
+      SslMode: !If
+        - SslModeOff
+        - none
+        - require
+      Port: !Ref TargetDatabasePort
+      Username: !Ref TargetDatabaseSchemaUser 
+      Password: !Ref TargetDatabaseSchemaUserPassword 
+      KmsKeyId: !GetAtt 'CMKforDMS.Outputs.CMKARN'   
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: internal
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value: !Ref Blockcode
+  DMSRepTask:
+    Type: AWS::DMS::ReplicationTask
+    Properties:
+      MigrationType: full-load
+      ReplicationInstanceArn: !Ref DmsRepInstance
+      SourceEndpointArn: !Ref DMSSourceEndpoint
+      TargetEndpointArn: !Ref DMSTargetEndpoint
+      ReplicationTaskIdentifier: !Sub
+        - RepTask-${SourceDatabaseName}-${TargetDatabaseInstanceIdentifierName}-${env}
+        - {
+          env: !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"]
+          }
+      ReplicationTaskSettings: >-
+        {
+          "TargetMetadata" : {
+            "SupportLobs" : true,
+            "FullLobMode" : false,
+            "LimitedSizeLobMode": true
+          },
+          "FullLoadSettings" : {
+            "TargetTablePrepMode" : "DO_NOTHING"
+          },
+          "Logging" : {
+            "EnableLogging" : true,
+            "LogComponents" : [
+            {"Id": "SOURCE_UNLOAD",
+              "Severity": "LOGGER_SEVERITY_DEFAULT"},
+            {"Id": "TARGET_LOAD",
+            "Severity": "LOGGER_SEVERITY_DEFAULT"},
+            {"Id": "TASK_MANAGER", 
+            "Severity": "LOGGER_SEVERITY_DEFAULT"},
+            {"Id": "SOURCE_CAPTURE",
+            "Severity": "LOGGER_SEVERITY_DEFAULT"},
+            {"Id": "TARGET_APPLY", 
+            "Severity": "LOGGER_SEVERITY_DEFAULT"}]
+          },
+          "ControlTablesSettings" : {
+            "StatusTableEnabled" : true
+          },
+          "ErrorBehavior" : {
+            "RecoverableErrorCount": 0,
+            "RecoverableErrorInterval": 5,
+            "RecoverableErrorThrottlingMax": 300
+          }
+        }
+      TableMappings:  !Sub 
+        '{
+            "rules": [
+              {
+                "rule-type": "transformation",
+                "rule-id": "1",
+                "rule-name": "1",
+                "rule-target": "schema",
+                "object-locator": {
+                "schema-name": "${TargetDatabaseSchemaUser}"
+                },
+                "rule-action": "convert-uppercase",
+                "value": null,
+                "old-value": null
+              },
+              {
+                "rule-type": "selection",
+                "rule-id": "2",
+                "rule-name": "2",
+                "object-locator": {
+                  "schema-name": "${SourceDatabaseSchemaName}",
+                  "table-name": "%"
+                },
+                "rule-action": "include",
+                "filters": []
+              }
+            ]
+          }'
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: internal
+        - Key: iServerID
+          Value: !Ref iServerIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value: !Ref Blockcode
+     
+    

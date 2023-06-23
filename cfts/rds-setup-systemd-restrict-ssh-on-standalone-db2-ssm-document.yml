@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: SSM command document that will install DB2
+Parameters:
+  DB2InstanceId:
+    Type: String
+    Description: DB2 Instance Id
+    Default: 'cod1ud01'
+  Db2AdmGroup:
+    Type: String
+    Description: DB2 Admin Group
+    Default: 'daldba'
+  Db2InstanceHomedir:
+    Type: String
+    Description: DB2 instance home directory
+    Default: '/products/database/db2/admin'
+  Db2ScriptsFolderLocalDownloadPath:
+    Type: String
+    Description: Local path where DB2 post scripts are downloaded
+    Default: '/products/daldba/scripts/'
+
+
+Resources:
+  SetupSystemdAndRestrictSSHOnDB2StandaloneSSMDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Name: "DL-DB-setup-systemd-and-restrict-ssh-on-standalone-DB2"
+      Content:
+        {
+          "schemaVersion": "2.2",
+          "description": "Command document that will setup systemd and restrict ssh on standalone db2 ec2",
+          "parameters":
+            {
+              "DB2InstanceId":
+                {
+                  "type": "String",
+                  "description": "DB2 Instance Id",
+                  "default":
+                    { "Ref": "DB2InstanceId" },
+                },
+              "Db2AdmGroup":
+                {
+                  "type": "String",
+                  "description": "Db2 Admin Group",
+                  "default":
+                    { "Ref": "Db2AdmGroup" },
+                },
+              "Db2InstanceHomedir":
+                {
+                  "type": "String",
+                  "description": "DB2 instance home directory",
+                  "default": { "Ref": "Db2InstanceHomedir" },
+                },
+              "Db2ScriptsFolderLocalDownloadPath":
+                {
+                  "type": "String",
+                  "description": "Local path where DB2 post scripts are downloaded",
+                  "default": { "Ref": "Db2ScriptsFolderLocalDownloadPath" },
+                },
+            },
+
+          "mainSteps":
+            [
+              {
+                "action": "aws:runShellScript",
+                "name": "setupsystemdandrestrtctssh",
+                "inputs":
+                  {
+                    "runCommand":
+                      [
+                        "  #",
+                        "  #Setup systemd and restrict ssh",
+                        "  ",
+                        "  ",
+                        "  echo \"Systemd setup for automating start/shutdown of Db2 Instance\"",
+                        "  ",
+                        "  cat <<EOF > /etc/systemd/system/{{DB2InstanceId}}.service",
+                        "  # Invoking UDB scripts to start/shutdown Instances defined on system",
+                        "  # and starts Listener",
+                        "  [Unit]",
+                        "  Description=Systemd Service for UDB instance {{DB2InstanceId}}",
+                        "  After=network-online.target remote-fs.target local-fs.target",
+                        "  Requires=network-online.target remote-fs.target local-fs.target",
+                        "  ",
+                        "  [Service]",
+                        "  User={{DB2InstanceId}}",
+                        "  Group={{Db2AdmGroup}}",
+                        "  Type=forking",
+                        "  SyslogIdentifier={{DB2InstanceId}}-service",
+                        "  TimeoutStartSec=5min",
+                        "  TimeoutStopSec=5min",
+                        "  Environment=\"HOME={{Db2InstanceHomedir}}\"",
+                        "  ExecStart={{Db2ScriptsFolderLocalDownloadPath}}startup_udb.sh",
+                        "  ExecStop={{Db2ScriptsFolderLocalDownloadPath}}shutdown_udb.sh",
+                        "  ",
+                        "  [Install]",
+                        "  WantedBy=multi-user.target",
+                        "  ",
+                        "EOF",
+                        "  sudo systemctl daemon-reload",
+                        "  sudo systemctl enable {{DB2InstanceId}}.service",
+                        "  sudo systemctl start {{DB2InstanceId}}.service",
+                        "  ",
+                        "  ",
+                        "  echo =\"ssh restriction\"",
+                        "  sudo authselect select sssd with-pamaccess with-mkhomedir --force",
+                        "  cat <<EOF >> /etc/security/access.conf",
+                        "+ : root : ALL",
+                        "+ : pam_opmiimdbaudbl : ALL",
+                        "+ : {{DB2InstanceId}} {{Db2AdmGroup}} ssm-user : ALL",
+                        "- : ALL : ALL",
+                        "EOF",
+                        "  sudo grep -v pam_access.so /etc/pam.d/system-auth > /etc/pam.d/db2",
+
+                      ],
+                  },
+              },
+            ],
+        }

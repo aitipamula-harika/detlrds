@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for Deltas RDS Config Rules, Remediation, and SNS Notifications
+
+Parameters:
+  DummyValue:
+    Type: String
+    Description: placeholder value to trigger change if needed.
+    Default: 0
+  
+  multiAZRemediationState:
+    Type: String
+    Description: is remediation on(true) or off(false)
+    Default: false
+    AllowedValues:
+      - true
+      - false
+
+Resources:
+  ConfigRuleForMultiAZ:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rds-multi-az-support-check
+      Description: Checks whether high availability is enabled for your RDS DB instances.
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::RDS::DBInstance"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "RDS_MULTI_AZ_SUPPORT"
+
+  MultiAZRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      Automatic: !Ref multiAZRemediationState
+      ConfigRuleName: !Ref ConfigRuleForMultiAZ
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 30
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/alf-SSM-Automation-Config-Role
+        ResourceID:
+          ResourceValue:
+            Value: RESOURCE_ID
+      TargetId: DL-RDS-delete-instance
+      TargetType: SSM_DOCUMENT
+
+  RDSConfigComplianceSNSTopic:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: "rds-config-compliance-multiaz-notifications"
+
+  RDSComplianceEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: rds-config-rule-compliance-change
+      Description: This event gets triggered when an RDS config rules compliance changes
+      State: ENABLED
+      Targets:
+        -
+          Arn: !Ref RDSConfigComplianceSNSTopic
+          Id: !GetAtt RDSConfigComplianceSNSTopic.TopicName
+      EventPattern:
+        source:
+          - aws.config
+        detail-type:
+          - Config Rules Compliance Change
+        detail:
+          messageType:
+            - ComplianceChangeNotification
+          configRuleName:
+            - !Ref ConfigRuleForMultiAZ
+      Targets:
+        - Arn: !Ref RDSConfigComplianceSNSTopic
+          Id: SNSNotification
+          InputTransformer:
+            InputPathsMap:
+              awsRegion: "$.detail.awsRegion"
+              resourceId: "$.detail.resourceId"
+              awsAccountId: "$.detail.awsAccountId"
+              compliance: "$.detail.newEvaluationResult.complianceType"
+              rule: "$.detail.configRuleName"
+              time: "$.detail.newEvaluationResult.resultRecordedTime"
+              resourceType: "$.detail.resourceType"
+            InputTemplate: |
+              "On AWS Config rule <rule> evaluated the <resourceType> with Id <resourceId> in the account <awsAccountId> region <awsRegion> as <compliance>."

@@ -1,0 +1,1021 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Description": "AWS CloudFormation  Template for creating an Amazon RDS Oracle cross region read replica  environment.
+  
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'Oracle Database details & credentials'
+      Parameters:
+      - Environment
+      - IsPrimaryRDSInstanceR1
+      - SourceDBInstanceName
+      - SourceRegion
+      - SourceRDSCmkKeyArn
+      - SourceDBUserCmkKeyArn
+      - RDSInstanceSubnetSSMParameter
+      - RDSSubnetGroupSubnet1SSMParameter
+      - RDSSubnetGroupSubnet2SSMParameter
+      - RDSSubnetGroupSubnet3SSMParameter
+      - Blockcode
+      - EngineVersion
+      - DBInstanceIdentifier
+    - Label:
+        default: 'AWS RDS Oracle Parameters'
+      Parameters:
+      - EnablePerformanceInsights
+      - EnhancedMonitoringInterval
+      - PerformanceInsightsRetentionPeriod
+      - DBInstanceClass
+      - StorageType
+      - Iops
+      - DBAllocatedStorage
+      - MaxAllocatedStorage
+      - ReplicaNumber
+      - LogRetention
+      - DefinedMaintenanceWindow
+      - DeltaPrivateNetworkPrefix
+          
+    - Label:
+        default: 'AWS RDS Tagging Parameters'
+      Parameters:
+      - costCenterParameter
+      - uniqueIDParameter
+      - dataClassificationParameter
+      - supportGroupParameter
+      - changeGroupParameter
+      - drTierParameter
+      - pciIndicator
+      - soxIndicator
+      - cuiIndicator
+      - phiIndicator
+      - appSupportEmail 
+    - Label:
+       default: 'AWS RDS Monitoring Parameters'
+      Parameters:
+      - CreateAlarms
+      - logMetricNamespace
+      - DBLoadCpuAlarmTheshold
+      - FreeableMemoryAlarmTheshold
+      - FreeStorageSpaceAlarmTheshold
+      - DatabaseConnectionsAlarmTheshold
+      - ReplicaLagAlarmTheshold
+      - SnowSNSTopic
+    
+    ParameterLabels:
+      EngineVersion:
+        default: "Oracle Engine version for database:"
+
+Parameters:
+  Blockcode:
+    Type: String
+    Description: Enter the 10 character Blockcode (in UPPERCASE). This must be same as the Source Database Blockcode.
+    AllowedPattern: ^[A-Z0-9]{10}$
+    ConstraintDescription: The Blockcode must entered in uppercase and must be 10 characters long
+  IsPrimaryRDSInstanceR1:
+    Type: String
+    Description: Will this be a Primary Instance in Region1 after DR Failback 
+    AllowedValues: ['true','false']
+  SourceDBInstanceName:
+    Type: String
+    Description: This should be the SourceDatabaseInstanceIdentifier name for which cross-region replica is being created.
+  SourceRegion:
+    Type: String
+    Description: This should be the region where the Source Database is created.
+    AllowedValues: ['us-east-1','us-west-2']
+    Default: us-east-1
+  DBInstanceIdentifier:
+    Type: String
+    Description: If this is read replica in Region 2 then please enter SourceDBName-rep. If this will become a Source Database in Region 1 retain the old Source Primary from Region1 
+  DBInstanceClass:
+    Description: The  DB instance class same as Source DB Instance Instance class. 
+    Type: String
+    AllowedValues: ['db.m5.large','db.m5.xlarge','db.m5.2xlarge','db.m5.4xlarge','db.r5.large','db.r5.xlarge','db.r5.2xlarge','db.t3.medium','db.t3.large','db.t3.xlarge','db.t3.2xlarge','db.m5.large','db.m5.xlarge','db.m5.2xlarge','db.m5.4xlarge','db.m5.12xlarge','db.m5.24xlarge','db.r5.large','db.r5.xlarge','db.r5.2xlarge','db.r5.4xlarge','db.r5.8xlarge','db.r5.12xlarge','db.r5.16xlarge','db.r5.24xlarge']
+    ConstraintDescription: Must select a valid DB instance type.
+  StorageType:
+    Type: String
+    Description: The storage type must be same as that of Source Database Instance . 
+    AllowedValues: ['gp2','io1']
+  RDSInstanceSubnetSSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first subnet in which the lambda function should run.  Migration Account should use /delta/vpc/datasubnet1aid OR /delta/vpc/datasubnet2aid OR datasubnet3aid and other dev accounts should use privatesubnet1aid
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  RDSSubnetGroupSubnet1SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the first DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1aid
+  RDSSubnetGroupSubnet2SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the second DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1bid
+  RDSSubnetGroupSubnet3SSMParameter:
+    Type: String
+    Description: The name of the SSM parameter which holds a pointer to the third DB Subnet
+    AllowedValues: ["datasubnet1aid","datasubnet1bid","datasubnet1cid", "privatesubnet1aid","privatesubnet2aid","privatesubnet3aid"]
+    Default: datasubnet1cid
+  EngineVersion:
+    Description: This should be same Oracle version as Sourec Database .
+    Type: String
+    Default: '19.0.0.0.ru-2021-10.rur-2021-10.r1'
+    AllowedValues: ['19.0.0.0.ru-2021-10.rur-2021-10.r1', '19.0.0.0.ru-2021-07.rur-2021-07.r1']
+  Iops:
+    Type: Number
+    Description: This value should be same as the Source Database Instance value.
+    MinValue: 1000
+    MaxValue: 80000
+  DefinedMaintenanceWindow:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+    Default: 'sat:07:00-sat:07:30'
+  costCenterParameter:
+    Description: The value for the costCenter tag .
+    Type: String
+    Default: TEST
+  uniqueIDParameter:
+    Description: The value for the uniqueID tag
+    Type: String
+    Default: TEST
+  dataClassificationParameter:
+    Description: The value for the dataClassificationParameter tag
+    Type: String
+    AllowedValues: ['internal', 'public', 'confidential', 'restricted']
+    Default: internal
+  supportGroupParameter:
+    Description: Enter a value only if this is Cloud Native (Containerize/Modernize) AWS account. Migrate accounts will use default values.
+    Type: String
+    Default: DBA - Oracle Support
+  changeGroupParameter:
+    Description: Enter a value only if this is Cloud Native (Containerize/Modernize) AWS account. Migrate accounts will use default values.
+    Type: String
+    Default: DBA - Oracle Support
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /delta/account/environment:1
+  DeltaPrivateNetworkPrefix:
+    Type: String
+    Description: This is the one of the Managed prefix lists available in the Region for the account. This will be different from Source database prefix list.
+    Default: pl-05a3c87e010904082
+  DBAllocatedStorage:
+    Description: This size should be same as the Source Database Instance storage size.
+    Type: Number
+    MinValue: 100
+    MaxValue: 16384
+    ConstraintDescription: must be between 20 and 16384 GiB.
+  MaxAllocatedStorage:
+    Type: Number
+    Default: '1000'
+    Description: The maximum size in GB that this RDS instance can auto-scale to.  This number has to be greater than the initial allocated storage size and less than 16384 GB.
+    MinValue: 21
+    MaxValue: 16384
+  EnhancedMonitoringInterval:
+    Type: Number
+    Description: The interval, in seconds, between points when Enhanced Monitoring metrics are collected for the DB instance.  To disable colecting Enhanced Monitoring metrics you should specify 0.
+    AllowedValues: [0,1,5,10,15,30,60]
+    Default: 60
+  EnablePerformanceInsights:
+    Description: 'A flag (true/false) which indicates whether or not performance insights should be enabled on the RDS instance.'
+    Type: String
+    Default: true
+    AllowedValues: ['true', 'false']
+  LogRetention:
+    Type: Number
+    Description: The length of time (in days) that you wish CloudWatch to retain the RDS logs for. May want to  keep it same as Source DB.
+    Default: 60
+    AllowedValues: [1,3,5,7,14,30,60,90,120,150,180,365,400,545,731,1827,3653]
+  drTierParameter:
+    Type: String
+    Description: This must be same as the Source Database Tag value.
+    AllowedValues: ['MV', 'MC', 'BC', 'BE', 'B']
+    Default: B
+  pciIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  soxIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  cuiIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  phiIndicator:
+    Type: String
+    Description: The value for the appCritiality tag.
+    AllowedValues: ['true', 'false']
+  appSupportEmail:
+    Type: String
+    Description: The Application support group email or mailbox
+  PerformanceInsightsRetentionPeriod:
+    Type: Number
+    Description: The amount of time, in days, to retain Performance Insights data.  Valid values are 7 days (1 week) or 731 days (2 years).
+    Default: 7
+    AllowedValues: [7,731]
+  CreateAlarms:  
+    Type: String
+    Description: Only Applicable to Migrate accounts. Please set to True if you want to create alarms along with RDS Instance. For SI/Prod database it will created alarms irrespective parameter value. 
+    AllowedValues: ['true', 'false']
+    Default: true
+  ReplicaLagAlarmTheshold: 
+    Type: Number
+    Description: This Alarm is to alert on Replication Lag for the Read Replica. 5mins is a default value.
+    Default: 300
+  logMetricNamespace:
+    Type: String
+    Description: The name of log metric namespace. Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore.  
+    Default: RdsLogMetrics
+  DBLoadCpuAlarmTheshold:
+    Type: Number
+    Description: Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore. Please enter threshold for DbLoadCpu. Ideally it shoule be set value = number of VCPUs allocated RDS instance based on Instance Type + 1. Refer https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.DBInstanceClass.html#Concepts.DBInstanceClass.Summary for more info.
+  FreeableMemoryAlarmTheshold:
+    Type: Number
+    Default: 100000000 
+    Description: Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore. Please enter threshold for free Space below which you would like to get Alarm. Default is set to 100MB=100000000  in bytes. 
+  FreeStorageSpaceAlarmTheshold:
+    Type: Number
+    Default: 4000000000 
+    Description: Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore. Please enter threshold for free Space below which you would like to get Alarm. Default is set to 4 GB=4000000000   in bytes. 
+  DatabaseConnectionsAlarmTheshold:
+    Type: Number
+    Description: Please set this value to 95% of max connections set for instance. Max Connections value is set based on type of instance. Please refer documentation https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_Limits.html#RDS_Limits.MaxConnections
+  SnowSNSTopic:
+    Type: String
+    Default: RDS-Alerts-All
+    Description: Only Applicable to Migrate accounts. Non-Migrate accounts need to ignore. The SNS Topic for sending alarms to lambda to forward it further to snow. Default should work in all cases.  
+Mappings:
+  AZMap:
+    privatesubnet1aid:
+      "az": "us-west-2a"
+    privatesubnet2aid:
+      "az": "us-west-2b"
+    privatesubnet3aid:
+      "az": "us-west-2c"
+    datasubnet1aid:
+      "az": "us-west-2a"
+    datasubnet1bid:
+      "az": "us-west-2b"
+    datasubnet1cid:
+      "az": "us-west-2c"
+  EnvironmentMap:
+    sandbox:
+      "abbreviation": "l"
+      "shortname": "sbx"
+    development:
+      "abbreviation": "d"
+      "shortname": "dev"
+    systems-integration:
+      "abbreviation": "i"
+      "shortname": "si"
+    production:
+      "abbreviation": "p"
+      "shortname": "prd"
+  RegionMap:
+    us-east-1:
+      "abbreviation": "NV"
+    us-west-2:
+      "abbreviation": "OR"
+
+Conditions:
+  EnhancedMonitoringDisabled: !Equals
+    - !Ref EnhancedMonitoringInterval
+    - 0
+  EnhancedMonitoringEnabled: !Not
+    - Condition: EnhancedMonitoringDisabled
+  PeformanceInsightsDisabled: !Equals
+    - !Ref EnablePerformanceInsights
+    - false
+  isDevelopmentAccount: !Equals
+    - !Ref Environment
+    - development
+  isGP2: !Equals
+    - !Ref StorageType
+    - 'gp2'
+  isSIorPRDAccount: !Not
+    - Condition: isDevelopmentAccount
+  isCreateAlarm: !Equals
+    - !Ref CreateAlarms
+    - 'true'
+  NotBePrimaryRDSInstanceinR1: !Equals
+    - !Ref IsPrimaryRDSInstanceR1
+    - 'false'
+  # dataClassification: internal or confidential a CMK to be generated for each RDSKey  ( rds-<blockcode>-CMK )
+  # dataClassification: restricted a CloudHSM key to be created outside of CFT
+  # dataClassification: public – Default AWS RDS key 
+
+  # InternaldataClassification: !Equals [!Ref dataClassificationParameter, 'internal']
+  # ConfidentialdataClassification: !Equals [!Ref dataClassificationParameter, 'confidential']
+  # IsdataClassificationInternalOrConfidential: !Or [Condition: InternaldataClassification, Condition: ConfidentialdataClassification ]
+  # IsdataClassificationPublic: !Equals [!Ref dataClassificationParameter, 'public']
+  # IsdataClassificationRestricted: !Equals [!Ref dataClassificationParameter, 'restricted']
+  
+Resources: 
+   # The following resource creates a cloudwatch log group where the Alert logs for Oracle will be stored
+  # This resource is required in order to specify the retention length that should be used by CloudWatch
+  alertCloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub  /aws/rds/instance/${DBInstanceIdentifier}/alert
+      RetentionInDays: !Ref LogRetention
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: engineVersion
+          Value: !Sub "oracle-${EngineVersion}"
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+  # The following resource creates a cloudwatch log group where the audit logs for Oracle will be stored
+  # This resource is required in order to specify the retention length that should be used by CloudWatch
+  auditCloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/rds/instance/${DBInstanceIdentifier}/audit
+      RetentionInDays: !Ref LogRetention
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: engineVersion
+          Value: !Sub "oracle-${EngineVersion}"
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+  # The following resource creates a cloudwatch log group where the trace files  for Oracle will be stored
+  # This resource is required in order to specify the retention length that should be used by CloudWatch
+  traceCloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/rds/instance/${DBInstanceIdentifier}/trace
+      RetentionInDays: !Ref LogRetention
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: engineVersion
+          Value: !Sub "oracle-${EngineVersion}"
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+ # The following resource creates a cloudwatch log group where the Listener log  for Oracle will be stored
+  # This resource is required in order to specify the retention length that should be used by CloudWatch
+  listenerCloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub  /aws/rds/instance/${DBInstanceIdentifier}/listener
+      RetentionInDays: !Ref LogRetention
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: engineVersion
+          Value: !Sub "oracle-${EngineVersion}"
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+  # The resource below creates a new IAM role which is used for enhanced monitoring.
+  # This role will only get created if the parameter for this stack specifies enabling enhanced monitoring
+  EnhancedMonitoringRole:
+    Condition: EnhancedMonitoringEnabled
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'delegate-admin-oracle-monitoring-role-${AWS::StackName}'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - monitoring.rds.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+      PermissionsBoundary:
+        Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/cft-developer-boundary-policy
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: engineVersion
+          Value: !Sub "oracle-${EngineVersion}"
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+   
+  # The resource below creates an EC2 Security Group which is then used when creating the RDS DB Instance.
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Oracle EC2 Security Group for ${Blockcode}'
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        Description: This ingress rule allows pl-05a3c87e010904082Opnet to communicate correctly over port 27101
+        SourcePrefixListId: !Ref DeltaPrivateNetworkPrefix
+        FromPort: 1521
+        ToPort: 1521
+      VpcId: '{{resolve:ssm:/delta/vpc/vpcid:1}}'
+      Tags:
+        -
+          Key: "Name"
+          Value: !Sub
+           - ${reg}-${env}-${os}${tier}-${Blockcode}
+           -  {
+              reg:  !FindInMap [RegionMap, !Ref "AWS::Region", "abbreviation"],
+              env:  !FindInMap [EnvironmentMap, !Ref Environment, "abbreviation"],
+              os: 'L',     # L|W     L=LINUX,W=Windows
+              tier: 'D'   # W|A|D   W=Web,A=App,D=Database
+              }
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: engineVersion
+          Value: !Sub "oracle-${EngineVersion}"
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+  # The resource below creates a DB Subnet Group that is used when creating the RDS DB Instance.
+  # The DB Subnet Group utilizes the current accounts subnets which are specified inside SSM parameters.
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: DB subnet group
+      SubnetIds:
+        - !Sub '{{resolve:ssm:/delta/vpc/${RDSSubnetGroupSubnet1SSMParameter}:1}}'
+        - !Sub '{{resolve:ssm:/delta/vpc/${RDSSubnetGroupSubnet2SSMParameter}:1}}'
+        - !Sub '{{resolve:ssm:/delta/vpc/${RDSSubnetGroupSubnet3SSMParameter}:1}}'
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail 
+  # The resource below creates an Oracle Parameter Group that is used when creating the RDS DB Instance.
+  DBParameterGroup:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: !Sub 'Oracle Parameter Group for ${Blockcode}'
+      Family: oracle-ee-19
+      Tags:
+        - Key: Name
+          Value: delta-oracle-19
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+      Parameters:
+        open_cursors: 315
+        _client_enable_auto_unregister: true
+   
+   # The resource below creates a cross-region read replica.
+  CrossRegionReplicaInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: !Ref DBAllocatedStorage 
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      DBInstanceClass: !Ref DBInstanceClass
+      VPCSecurityGroups:
+        - !Ref EC2SecurityGroup
+      DBInstanceIdentifier: !Sub ${DBInstanceIdentifier}
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBParameterGroupName: !Ref DBParameterGroup
+      DeletionProtection: true
+      CopyTagsToSnapshot: true
+      EnablePerformanceInsights: !Ref EnablePerformanceInsights
+      EnableCloudwatchLogsExports:
+        - alert
+        - audit
+        - listener
+        - trace
+      KmsKeyId: !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/${DBInstanceIdentifier}-rds-cmk
+      Iops: !If [isGP2, !Ref AWS::NoValue, !Ref Iops]
+      StorageEncrypted: true
+      SourceDBInstanceIdentifier: !Sub arn:aws:rds:${SourceRegion}:${AWS::AccountId}:db:${SourceDBInstanceName}
+      MaxAllocatedStorage: !Ref MaxAllocatedStorage
+      MonitoringInterval: !If [EnhancedMonitoringDisabled, !Ref AWS::NoValue, !Ref EnhancedMonitoringInterval]
+      MonitoringRoleArn: !If [EnhancedMonitoringDisabled, !Ref AWS::NoValue, !GetAtt EnhancedMonitoringRole.Arn]
+      MultiAZ: !If [isDevelopmentAccount, false, true]
+      PreferredMaintenanceWindow: !Ref DefinedMaintenanceWindow
+      PerformanceInsightsKMSKeyId: !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/${DBInstanceIdentifier}-rds-cmk
+      StorageType: !Ref StorageType
+      Tags:
+        - Key: changeGroup
+          Value: !Ref changeGroupParameter
+        - Key: costCenter
+          Value: !Ref costCenterParameter
+        - Key: dataClassification
+          Value: !Ref dataClassificationParameter
+        - Key: uniqueID
+          Value: !Ref uniqueIDParameter
+        - Key: supportGroup
+          Value: !Ref supportGroupParameter
+        - Key: blockCode
+          Value: !Ref Blockcode
+        - Key: drTier
+          Value: !Ref drTierParameter
+        - Key: InfraAppSupportEmail
+          Value: IT_xOracleDBA@delta.com
+        - Key: pciIndicator
+          Value: !Ref pciIndicator
+        - Key: soxIndicator
+          Value: !Ref soxIndicator
+        - Key: cuiIndicator
+          Value: !Ref cuiIndicator
+        - Key: phiIndicator
+          Value: !Ref phiIndicator
+        - Key: appSupportEmail
+          Value: !Ref appSupportEmail
+  # The Route53 recordset below creates a friendly CName which points to the default RDS DNS endpoint.
+  # Clients can use this friendly name when communicating with the RDS instance.
+  #RouteRecordSet:
+  #  Type: AWS::Route53::RecordSet
+  #  Properties:
+  #    HostedZoneId: '{{resolve:ssm:/delta/r53/hostedzoneid:1}}'
+  #    Name: !Sub
+  #      - "${DBInstanceIdentifier}-r1.${hostedzonedomain}"
+  #      - {
+  #        hostedzonedomain: '{{resolve:ssm:/delta/r53/hostedzonename:1}}'
+  #        }
+  #    Type: CNAME
+  #    TTL: '300'
+  #    ResourceRecords:
+  #    - !GetAtt CrossRegionReplicaInstance.Endpoint.Address
+ #   DependsOn: CrossRegionReplicaInstance
+   
+  ###### Monitoring ######
+  #################### Metric Filters and Metrics #######################################
+  # Following is list of all metric filters we need before creating alarms. 
+  # Each Metric filter creates a metric which then can be utilized while createing alarms. 
+  
+  # This Metric filter will  search for pattern '?"ORA-600" ?"ORA-4035" ?"ORA-7445" ?'  in
+  # Oracle database error log and create corresponding metric
+  FilterlogOraRds:
+    Condition: isCreateAlarm
+    Type: AWS::Logs::MetricFilter
+    Properties: 
+      LogGroupName: !Sub  
+      - "/aws/rds/instance/${RdsDbInstance}/alert"
+      - {
+          RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }
+      FilterPattern:  '?"ORA-600" ?"ORA-4035" ?"ORA-7445"'
+      MetricTransformations: 
+      - MetricValue: "1"
+        MetricNamespace: !Ref logMetricNamespace
+        MetricName: !Sub 
+        - "dblogalerts-${RdsDbInstance}"
+        - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+          }
+  # Following alarm utilizes all metrics created above for Oracle error logs based metric
+  DbAlertAlarm:
+    Condition: isCreateAlarm
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle  # this topic points to DBA emails. 
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmDescription: Alarm which triggers when there are errors in database log
+      AlarmName: !Sub 
+      - "RDSdblogalerts-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 1
+      EvaluationPeriods: 1
+      InsufficientDataActions: []
+      MetricName: !Sub 
+      - "dblogalerts-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }      
+      Namespace: !Ref logMetricNamespace
+      Period: 60
+      Statistic: Sum
+      Threshold: 0.0
+      TreatMissingData: notBreaching
+
+  # Following alarm utilizes cloudwatch DatabaseConnections metric and triggers when it is greater than threshold
+  DatabaseConnectionsAlarm:
+    Condition: isCreateAlarm
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub 
+      - "RDSDatabaseConnections-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref CrossRegionReplicaInstance
+      EvaluationPeriods: 5
+      MetricName: DatabaseConnections
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref DatabaseConnectionsAlarmTheshold
+      TreatMissingData: ignore
+
+  # Following alarm utilizes cloudwatch CPUUtilization metric and triggers when it is greater than threshold
+  CPUUtilizationAlarm:
+    Condition: isCreateAlarm
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub 
+      - "RDSCPUUtilization-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref CrossRegionReplicaInstance
+      EvaluationPeriods: 5
+      MetricName: CPUUtilization
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: 90
+      TreatMissingData: ignore
+
+
+  # Following alarm utilizes cloudwatch ReadLatency metric and triggers when it is greater than threshold
+  ReadLatencyAlarm:
+    Condition: isCreateAlarm
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      AlarmName: !Sub 
+      - "RDSReadLatency-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }      
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref CrossRegionReplicaInstance
+      EvaluationPeriods: 5
+      MetricName: ReadLatency
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: 250
+      TreatMissingData: ignore
+
+  # Following alarm utilizes cloudwatch WriteLatency metric and triggers when it is greater than threshold
+  WriteLatencyAlarm:
+    Condition: isCreateAlarm
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      AlarmName: !Sub 
+      - "RDSWriteLatency-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }            
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref CrossRegionReplicaInstance
+      EvaluationPeriods: 5
+      MetricName: WriteLatency
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: 250
+      TreatMissingData: ignore
+
+  # DbLoadCpu is supposed to be less than 1 + NumCpus. This alarm triggers when Dbload is greater than NumCpus 
+  DBLoadCpuAlarm:
+    Condition: isCreateAlarm
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub 
+      - "RDSDBLoadCpu-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        } 
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref CrossRegionReplicaInstance
+      EvaluationPeriods: 5
+      MetricName: DBLoadCPU
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref DBLoadCpuAlarmTheshold
+      TreatMissingData: ignore
+
+  ## Following alarm utilizes cloudwatch FreeStorageSpace metric. This alarm triggers when FreeStorageSpace is less than 10% of maxallocated
+  FreeStorageSpaceAlarm:
+    Condition: isCreateAlarm
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmName: !Sub 
+      - "RDSFreeStorageSpace-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }       
+      ComparisonOperator: LessThanOrEqualToThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref CrossRegionReplicaInstance
+      EvaluationPeriods: 5
+      MetricName: FreeStorageSpace
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref FreeStorageSpaceAlarmTheshold  
+      TreatMissingData: ignore
+  
+  # FreeableMemory is supposed to be greater than at least 100MB . This alarm triggers when FreeableMemory is less than Threshold
+  FreeMemoryAlarm:
+    Condition: isCreateAlarm
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmDescription: Alarm to send alert when free memory is less than 100 MB 
+      AlarmName: !Sub 
+      - "RDSFreeMemory-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }       
+      ComparisonOperator: LessThanOrEqualToThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref CrossRegionReplicaInstance
+      EvaluationPeriods: 5
+      MetricName: FreeableMemory
+      Namespace: AWS/RDS
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref FreeableMemoryAlarmTheshold  
+      TreatMissingData: ignore
+  # ReplicaLagAlarm is triggered when the ReplicaLag is greather than 300 secs.
+  ReplicaLagAlarm:
+    Condition: isCreateAlarm
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions: 
+      - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:RDS-Alerts-Oracle
+      - !Sub 
+        - arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${SnowTopic}
+        - { SnowTopic : !Ref SnowSNSTopic }   
+      AlarmDescription: Alarm to send alert when replicationlag is greater than 5 mins 
+      AlarmName: !Sub 
+      - "ReplicaLagAlarm-${RdsDbInstance}"
+      - {
+            RdsDbInstance: !Ref CrossRegionReplicaInstance
+        }       
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value: !Ref CrossRegionReplicaInstance
+      EvaluationPeriods: 8
+      MetricName: ReplicaLag
+      Namespace: AWS/RDS
+      Period: 300
+      Statistic: Average
+      Threshold: !Ref ReplicaLagAlarmTheshold  
+      TreatMissingData: ignore
+  #################### End Cloudwatch Alarms  #######################################
+      
+#Outputs:
+#  SecurityGroup:
+#    Description: The RDS Security Group ID
+#    Value: !Ref EC2SecurityGroup
+
+#   Description: The RDS CNAME
+#    Value: !Ref RouteRecordSet
+    
+ # DatabaseInstanceIdentifierName:
+ #   Description: The RDS DB Instance Name
+ #   Value: !Ref CrossRegionReplicaInstance
+  
+ # JDBConnectionString:
+ #   Description: JDBC connection string for the database
+ #   Value: !Sub 
+ #     - jdbc:oracle://${myendpoint}:${myport}/orad001
+ #     - {
+ #       myendpoint: !Ref RouteRecordSet,
+ #       myport: !GetAtt CrossRegionReplicaInstance.Endpoint.Port,
+ #       }
+    

@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template to create event rule to schedule the lambda as job to execute sql script
+Metadata:
+    ParameterGroups:
+    - Label:
+        default: 'Lambda Parameters'
+      Parameters:
+      - FunctionName
+      - BucketName
+      - ShellScriptPath
+      - SqlScriptPath
+      - SecretName
+      - ScheduleExpression
+Parameters:
+  FunctionName:
+    Type: String
+    Description: The name of the lambda function
+    Default: rds-mssql-post-script
+  BucketName:
+    Type: String
+    Description: The name of the s3 bucket, to fetch scripts
+    Default: delta-postcfg-artifacts-us-east-1
+  ShellScriptPath:
+    Type: String
+    Description: The path of the shell script
+    Default: database/scripts/post_mssql_script -job.sh
+  SqlScriptPath:
+    Type: String
+    Description: The path of the SQL script
+    Default: database/scripts/sql-mssql-script-job.sql
+  SecretName:
+    Type: String
+    Description: The name of secret managers secret for RDS username and password
+  ScheduleExpression:
+    Type: String
+    Description: The cron expression
+    Default: cron(*/5 * * * ? *)
+Resources:
+  RDSPostLambdaEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: rds-mssql-post-script
+      Description: This event gets triggered periodically
+      State: ENABLED
+      ScheduleExpression: !Ref ScheduleExpression
+      Targets:
+        -
+          Id: rds-postgress-script-executer
+          Arn: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${FunctionName}
+          Input: !Sub |
+            {
+              "RequestType": "Job", "BucketName": "${BucketName}", "SecretArn": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretName}", "ScriptPath": "${ShellScriptPath}", "SqlScriptPath": "${SqlScriptPath}"
+            }
+  PermissionForEventsToInvokePostLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FunctionName
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt RDSPostLambdaEventRule.Arn
